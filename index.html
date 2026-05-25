@@ -396,8 +396,8 @@ $("interval").addEventListener("change", () => {
   if (custom) $("customInterval").focus();
 });
 
-// restaure la dernière saisie
-$("src").value = localStorage.getItem("pin_src") || "";
+// restaure la dernière saisie, sinon tableau par défaut
+$("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
 </script>
 </body>
 </html>
