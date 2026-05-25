@@ -1,0 +1,18 @@
+server {
+    listen       ${PORT};
+    listen       [::]:${PORT};
+    server_name  _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # SPA / page unique : tout renvoie vers index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Pas de cache sur le HTML (pour récupérer les mises à jour tout de suite)
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+}

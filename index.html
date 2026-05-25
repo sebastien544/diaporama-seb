@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Diaporama">
+<title>Diaporama Pinterest</title>
+<style>
+  :root { --bg:#111; --fg:#f4f4f5; --muted:#a1a1aa; --accent:#e60023; --card:#1c1c1f; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  body { overflow:hidden; }
+
+  /* ----- Écran de configuration ----- */
+  #setup { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    padding:max(20px,env(safe-area-inset-top)) 20px; overflow:auto; }
+  .panel { width:100%; max-width:480px; background:var(--card); border-radius:18px;
+    padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+  h1 { margin:0 0 4px; font-size:22px; }
+  h1 .dot { color:var(--accent); }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.5; }
+  label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
+  input[type=text], select { width:100%; padding:13px 14px; font-size:16px; border-radius:12px;
+    border:1px solid #333; background:#0c0c0e; color:var(--fg); }
+  input:focus, select:focus { outline:none; border-color:var(--accent); }
+  .row { display:flex; gap:12px; }
+  .row > div { flex:1; }
+  .chk { display:flex; align-items:center; gap:10px; margin-top:16px; font-size:15px; }
+  .chk input { width:22px; height:22px; accent-color:var(--accent); }
+  button.go { width:100%; margin-top:22px; padding:15px; font-size:17px; font-weight:600;
+    border:none; border-radius:12px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.go:disabled { opacity:.5; }
+  .hint { font-size:12px; color:var(--muted); margin-top:14px; line-height:1.5; }
+  .hint code { background:#000; padding:2px 6px; border-radius:5px; }
+  #status { margin-top:14px; font-size:14px; min-height:20px; }
+  #status.err { color:#ff6b6b; }
+  #status.ok  { color:#5edd8b; }
+
+  /* ----- Diaporama ----- */
+  #show { position:fixed; inset:0; background:#000; display:none; }
+  #show img { position:absolute; inset:0; width:100%; height:100%;
+    opacity:0; transition:opacity .6s ease; }
+  #show img.fit-contain { object-fit:contain; }
+  #show img.fit-cover   { object-fit:cover; }
+  #show img.on { opacity:1; }
+
+  #controls { position:absolute; left:0; right:0; bottom:0;
+    padding:16px 18px calc(16px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(0,0,0,.75), transparent);
+    display:flex; align-items:center; gap:18px; justify-content:center;
+    transition:opacity .3s; }
+  #controls.hidden { opacity:0; pointer-events:none; }
+  .ctrl { background:rgba(255,255,255,.12); border:none; color:#fff; width:52px; height:52px;
+    border-radius:50%; font-size:22px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .ctrl.big { width:62px; height:62px; font-size:26px; background:rgba(255,255,255,.2); }
+  #counter { position:absolute; top:calc(12px + env(safe-area-inset-top)); left:0; right:0;
+    text-align:center; font-size:14px; color:#fff; text-shadow:0 1px 3px #000;
+    transition:opacity .3s; }
+  #counter.hidden { opacity:0; }
+  #exit { position:absolute; top:calc(10px + env(safe-area-inset-top)); right:14px;
+    background:rgba(0,0,0,.4); border:none; color:#fff; width:42px; height:42px; border-radius:50%;
+    font-size:20px; cursor:pointer; transition:opacity .3s; }
+  #exit.hidden { opacity:0; pointer-events:none; }
+  .spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:15px; }
+</style>
+</head>
+<body>
+
+<!-- ====== Configuration ====== -->
+<div id="setup">
+  <div class="panel">
+    <h1>Diaporama <span class="dot">Pinterest</span></h1>
+    <div class="sub">Récupère les images d'un profil ou d'un tableau public et les fait défiler en plein écran.</div>
+
+    <label for="src">Profil ou tableau Pinterest</label>
+    <input id="src" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
+      placeholder="ex. pseudo  ou  pinterest.com/pseudo/mon-tableau">
+
+    <div class="row">
+      <div>
+        <label for="interval">Durée par image</label>
+        <select id="interval">
+          <option value="3">3 s</option>
+          <option value="5" selected>5 s</option>
+          <option value="8">8 s</option>
+          <option value="12">12 s</option>
+          <option value="custom">Personnalisé…</option>
+          <option value="0">Manuel</option>
+        </select>
+        <input id="customInterval" type="number" min="0.5" step="0.5" inputmode="decimal"
+          placeholder="secondes" style="display:none; margin-top:8px;">
+      </div>
+      <div>
+        <label for="fit">Cadrage</label>
+        <select id="fit">
+          <option value="contain" selected>Image entière</option>
+          <option value="cover">Plein écran (rogné)</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="chk"><input type="checkbox" id="shuffle"> Mélanger l'ordre</label>
+
+    <button class="go" id="go">▶︎ Lancer le diaporama</button>
+    <div id="status"></div>
+
+    <div class="hint">
+      Astuce iPad : « Partager → Sur l'écran d'accueil » pour un vrai plein écran.<br>
+      Seuls les <b>tableaux publics</b> sont accessibles via RSS. Tableaux secrets → API officielle (étape suivante).
+    </div>
+  </div>
+</div>
+
+<!-- ====== Diaporama ====== -->
+<div id="show">
+  <div class="spinner" id="spinner">Chargement…</div>
+  <img id="imgA" referrerpolicy="no-referrer" alt="">
+  <img id="imgB" referrerpolicy="no-referrer" alt="">
+  <div id="counter" class="hidden"></div>
+  <button id="exit" class="hidden">✕</button>
+  <div id="controls" class="hidden">
+    <button class="ctrl" id="prev">⟨</button>
+    <button class="ctrl big" id="play">⏸</button>
+    <button class="ctrl" id="next">⟩</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// Proxies CORS essayés dans l'ordre (le flux RSS de Pinterest n'autorise pas l'accès direct).
+// codetabs est le plus fiable au test ; les autres servent de secours s'il sature.
+const PROXIES = [
+  url => "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(url),
+  url => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
+  url => "https://thingproxy.freeboard.io/fetch/" + url,
+];
+
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+
+function setStatus(msg, kind) {
+  statusEl.textContent = msg || "";
+  statusEl.className = kind || "";
+}
+
+// Construit l'URL du flux RSS à partir de ce que tape l'utilisateur.
+function buildRssUrl(input) {
+  let s = input.trim();
+  if (!s) return null;
+  s = s.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  s = s.replace(/\?.*$/, "").replace(/#.*$/, "");      // retire query/anchor
+  s = s.replace(/^(.*?\.)?pinterest\.[a-z.]+\//i, ""); // retire le domaine éventuel
+  s = s.replace(/\.rss$/i, "").replace(/\/feed$/i, "").replace(/\/+$/,"").replace(/^\/+/,"");
+  const parts = s.split("/").filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) {
+    // profil entier
+    return `https://www.pinterest.com/${parts[0]}/feed.rss`;
+  }
+  // tableau précis : user/board
+  return `https://www.pinterest.com/${parts[0]}/${parts[1]}.rss`;
+}
+
+// Récupère le texte du flux via le premier proxy qui répond.
+async function fetchFeed(rssUrl) {
+  let lastErr;
+  for (const make of PROXIES) {
+    try {
+      const r = await fetch(make(rssUrl), { headers: { "Accept": "application/rss+xml,text/xml,*/*" } });
+      if (!r.ok) { lastErr = new Error("HTTP " + r.status); continue; }
+      const txt = await r.text();
+      if (txt && txt.includes("<item")) return txt;
+      lastErr = new Error("Flux vide ou tableau privé/inexistant");
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error("Aucun proxy n'a répondu");
+}
+
+// Extrait les URLs d'images du flux et les passe en haute résolution.
+function extractImages(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  const items = [...doc.querySelectorAll("item")];
+  const urls = [];
+  const seen = new Set();
+  for (const item of items) {
+    const desc = item.querySelector("description")?.textContent || "";
+    const enc  = item.querySelector("enclosure")?.getAttribute("url") || "";
+    let found = enc;
+    if (!found) {
+      const m = desc.match(/<img[^>]+src=["']([^"']+)["']/i)
+             || desc.match(/(https?:\/\/i\.pinimg\.com\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp))/i);
+      if (m) found = m[1];
+    }
+    if (found && !seen.has(found)) { seen.add(found); urls.push(upscale(found)); }
+  }
+  return urls;
+}
+
+// Remplace la taille miniature (ex. /236x/) par une plus grande.
+function upscale(url) {
+  return url.replace(/i\.pinimg\.com\/\d+x\//, "i.pinimg.com/736x/");
+}
+// Pour le plein écran on tente la résolution maximale, avec repli automatique.
+function maxRes(url) {
+  return url.replace(/i\.pinimg\.com\/\d+x\//, "i.pinimg.com/originals/");
+}
+
+// ---------- État du diaporama ----------
+let images = [];
+let idx = 0;
+let playing = true;
+let timer = null;
+let interval = 5000;
+let fitClass = "fit-contain";
+let frontIsA = true;
+
+const showEl = $("show"), setupEl = $("setup");
+const imgA = $("imgA"), imgB = $("imgB");
+const spinner = $("spinner"), counter = $("counter");
+const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
+
+function startShow() {
+  setupEl.style.display = "none";
+  showEl.style.display = "block";
+  spinner.style.display = "none";
+  idx = 0; playing = true; playBtn.textContent = "⏸";
+  display(0, true);
+  schedule();
+}
+
+function loadInto(imgEl, url) {
+  return new Promise(resolve => {
+    const hi = maxRes(url);
+    imgEl.onload = () => resolve(true);
+    imgEl.onerror = () => {            // l'original n'existe pas toujours → repli 736x
+      imgEl.onerror = () => resolve(false);
+      imgEl.src = url;
+    };
+    imgEl.src = hi;
+  });
+}
+
+function display(i, immediate) {
+  idx = (i + images.length) % images.length;
+  const front = frontIsA ? imgA : imgB;
+  const back  = frontIsA ? imgB : imgA;
+  back.className = fitClass;                 // (pas encore visible)
+  loadInto(back, images[idx]);
+  back.classList.add("on");
+  front.classList.remove("on");
+  frontIsA = !frontIsA;
+  counter.textContent = (idx + 1) + " / " + images.length;
+  // précharge la suivante
+  const nextUrl = images[(idx + 1) % images.length];
+  const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = maxRes(nextUrl);
+}
+
+function next() { display(idx + 1); schedule(); }
+function prev() { display(idx - 1); schedule(); }
+
+function schedule() {
+  clearTimeout(timer);
+  if (playing && interval > 0) timer = setTimeout(next, interval);
+}
+
+function togglePlay() {
+  playing = !playing;
+  playBtn.textContent = playing ? "⏸" : "▶︎";
+  schedule();
+  showControls();
+}
+
+// ---------- Contrôles tactiles ----------
+let ctrlTimer = null;
+function showControls() {
+  controls.classList.remove("hidden");
+  counter.classList.remove("hidden");
+  exitBtn.classList.remove("hidden");
+  clearTimeout(ctrlTimer);
+  ctrlTimer = setTimeout(() => {
+    controls.classList.add("hidden");
+    counter.classList.add("hidden");
+    exitBtn.classList.add("hidden");
+  }, 3000);
+}
+
+let touchX = null, touchY = null;
+showEl.addEventListener("touchstart", e => {
+  touchX = e.changedTouches[0].clientX; touchY = e.changedTouches[0].clientY;
+}, { passive: true });
+showEl.addEventListener("touchend", e => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  const dy = e.changedTouches[0].clientY - touchY;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+    dx < 0 ? next() : prev();
+  } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+    showControls();                          // simple tap → affiche les contrôles
+  }
+  touchX = touchY = null;
+}, { passive: true });
+
+// clic souris (desktop)
+showEl.addEventListener("click", e => {
+  if (e.target.closest("#controls") || e.target === exitBtn) return;
+  showControls();
+});
+
+// clavier (desktop)
+document.addEventListener("keydown", e => {
+  if (showEl.style.display !== "block") return;
+  if (e.key === "ArrowRight") next();
+  else if (e.key === "ArrowLeft") prev();
+  else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "Escape") exitShow();
+});
+
+playBtn.onclick = togglePlay;
+$("next").onclick = () => { next(); showControls(); };
+$("prev").onclick = () => { prev(); showControls(); };
+exitBtn.onclick = exitShow;
+
+function exitShow() {
+  clearTimeout(timer); clearTimeout(ctrlTimer);
+  showEl.style.display = "none";
+  setupEl.style.display = "flex";
+}
+
+// ---------- Lancement ----------
+$("go").addEventListener("click", async () => {
+  const rss = buildRssUrl($("src").value);
+  if (!rss) { setStatus("Indique un pseudo ou une URL Pinterest.", "err"); return; }
+
+  const sel = $("interval").value;
+  if (sel === "custom") {
+    const secs = parseFloat($("customInterval").value);
+    if (!secs || secs <= 0) { setStatus("Indique une durée en secondes (ex. 7).", "err"); return; }
+    interval = secs * 1000;
+  } else {
+    interval = parseInt(sel, 10) * 1000;
+  }
+  fitClass = "fit-" + $("fit").value;
+  const shuffle = $("shuffle").checked;
+
+  setStatus("Récupération du flux…");
+  $("go").disabled = true;
+  try {
+    const xml = await fetchFeed(rss);
+    images = extractImages(xml);
+    if (shuffle) for (let i = images.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
+    }
+    if (images.length === 0) {
+      setStatus("Aucune image trouvée. Le tableau est-il public ?", "err");
+    } else {
+      setStatus(images.length + " images chargées.", "ok");
+      localStorage.setItem("pin_src", $("src").value);
+      startShow();
+    }
+  } catch (e) {
+    setStatus("Échec : " + e.message + ". Réessaie (proxy occupé) ou vérifie l'URL.", "err");
+  } finally {
+    $("go").disabled = false;
+  }
+});
+
+// affiche le champ secondes uniquement quand « Personnalisé » est sélectionné
+$("interval").addEventListener("change", () => {
+  const custom = $("interval").value === "custom";
+  $("customInterval").style.display = custom ? "block" : "none";
+  if (custom) $("customInterval").focus();
+});
+
+// restaure la dernière saisie
+$("src").value = localStorage.getItem("pin_src") || "";
+</script>
+</body>
+</html>

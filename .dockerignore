@@ -1,0 +1,5 @@
+Dockerfile
+deploy-scaleway.sh
+*.md
+.dockerignore
+.git
