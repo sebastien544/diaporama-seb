@@ -126,6 +126,7 @@
     <button class="ctrl" id="prev">⟨</button>
     <button class="ctrl big" id="play">⏸</button>
     <button class="ctrl" id="next">⟩</button>
+    <button class="ctrl" id="fs" title="Plein écran">⛶</button>
   </div>
 </div>
 
@@ -324,6 +325,25 @@ playBtn.onclick = togglePlay;
 $("next").onclick = () => { next(); showControls(); };
 $("prev").onclick = () => { prev(); showControls(); };
 exitBtn.onclick = exitShow;
+
+// ---------- Plein écran (iPad : pris en charge ; iPhone : non) ----------
+const fsBtn = $("fs");
+function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+function toggleFullscreen() {
+  showControls();
+  if (!fsElement()) {
+    const el = showEl;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { Promise.resolve(req.call(el)).catch(() => {}); }
+    else { setStatus(""); } // non supporté (ex. iPhone) → utiliser « Sur l'écran d'accueil »
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+  }
+}
+function syncFsIcon() { fsBtn.textContent = fsElement() ? "⤡" : "⛶"; }
+fsBtn.onclick = toggleFullscreen;
+document.addEventListener("fullscreenchange", syncFsIcon);
+document.addEventListener("webkitfullscreenchange", syncFsIcon);
 
 function exitShow() {
   clearTimeout(timer); clearTimeout(ctrlTimer);
