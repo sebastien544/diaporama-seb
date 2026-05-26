@@ -111,7 +111,7 @@
       <option value="564x">Éco — 564 px (data réduite)</option>
     </select>
 
-    <label class="chk"><input type="checkbox" id="shuffle"> Mélanger l'ordre</label>
+    <label class="chk"><input type="checkbox" id="shuffle" checked> Mélanger l'ordre (aléatoire)</label>
 
     <button class="go" id="go">▶︎ Lancer le diaporama</button>
     <div id="status"></div>
@@ -438,6 +438,11 @@ $("interval").addEventListener("change", () => {
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
 $("quality").value = localStorage.getItem("pin_quality") || "736x";
+
+// Service Worker : cache-first des images (économie de data + hors-ligne)
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 </script>
 </body>
 </html>
