@@ -103,6 +103,14 @@
       </div>
     </div>
 
+    <label for="quality">Qualité des images</label>
+    <select id="quality">
+      <option value="originals">Originale (max) — la plus lourde</option>
+      <option value="1200x">Élevée — 1200 px</option>
+      <option value="736x" selected>Standard — 736 px (recommandé)</option>
+      <option value="564x">Éco — 564 px (data réduite)</option>
+    </select>
+
     <label class="chk"><input type="checkbox" id="shuffle"> Mélanger l'ordre</label>
 
     <button class="go" id="go">▶︎ Lancer le diaporama</button>
@@ -206,9 +214,9 @@ function extractImages(xmlText) {
 function upscale(url) {
   return url.replace(/i\.pinimg\.com\/\d+x\//, "i.pinimg.com/736x/");
 }
-// Pour le plein écran on tente la résolution maximale, avec repli automatique.
-function maxRes(url) {
-  return url.replace(/i\.pinimg\.com\/\d+x\//, "i.pinimg.com/originals/");
+// Réécrit la taille de l'image i.pinimg.com selon la qualité choisie (repli auto si indispo).
+function sizedUrl(url) {
+  return url.replace(/(i\.pinimg\.com\/)(?:\d+x|originals)(\/)/, "$1" + quality + "$2");
 }
 
 // ---------- État du diaporama ----------
@@ -218,6 +226,7 @@ let playing = true;
 let timer = null;
 let interval = 5000;
 let fitClass = "fit-contain";
+let quality = "736x";
 let frontIsA = true;
 
 const showEl = $("show"), setupEl = $("setup");
@@ -236,13 +245,13 @@ function startShow() {
 
 function loadInto(imgEl, url) {
   return new Promise(resolve => {
-    const hi = maxRes(url);
+    const want = sizedUrl(url);
     imgEl.onload = () => resolve(true);
-    imgEl.onerror = () => {            // l'original n'existe pas toujours → repli 736x
+    imgEl.onerror = () => {            // taille demandée indisponible → repli sur l'URL d'origine
       imgEl.onerror = () => resolve(false);
       imgEl.src = url;
     };
-    imgEl.src = hi;
+    imgEl.src = want;
   });
 }
 
@@ -258,7 +267,7 @@ function display(i, immediate) {
   counter.textContent = (idx + 1) + " / " + images.length;
   // précharge la suivante
   const nextUrl = images[(idx + 1) % images.length];
-  const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = maxRes(nextUrl);
+  const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = sizedUrl(nextUrl);
 }
 
 function next() { display(idx + 1); schedule(); }
@@ -394,6 +403,7 @@ $("go").addEventListener("click", async () => {
     interval = parseInt(sel, 10) * 1000;
   }
   fitClass = "fit-" + $("fit").value;
+  quality = $("quality").value;
   const shuffle = $("shuffle").checked;
 
   setStatus("Récupération des images…");
@@ -408,6 +418,7 @@ $("go").addEventListener("click", async () => {
     } else {
       setStatus(images.length + " images chargées.", "ok");
       localStorage.setItem("pin_src", $("src").value);
+      localStorage.setItem("pin_quality", quality);
       startShow();
     }
   } catch (e) {
@@ -426,6 +437,7 @@ $("interval").addEventListener("change", () => {
 
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
+$("quality").value = localStorage.getItem("pin_quality") || "736x";
 </script>
 </body>
 </html>
