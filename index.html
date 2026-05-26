@@ -351,11 +351,40 @@ function exitShow() {
   setupEl.style.display = "flex";
 }
 
+// ---------- Source des images : pins.json (API officielle) sinon flux RSS ----------
+function normalizeBoard(input) {
+  let s = (input || "").trim().toLowerCase();
+  s = s.replace(/^https?:\/\//, "").replace(/^www\./, "");
+  s = s.replace(/\?.*$/, "").replace(/#.*$/, "");
+  s = s.replace(/^(.*?\.)?pinterest\.[a-z.]+\//, "");
+  s = s.replace(/\.rss$/, "").replace(/\/feed$/, "").replace(/\/+$/, "").replace(/^\/+/, "");
+  return s;
+}
+
+async function getImages(inputValue) {
+  const want = normalizeBoard(inputValue);
+  // 1) Données synchronisées via l'API officielle (pins.json, même origine, TOUTES les épingles)
+  try {
+    const r = await fetch("pins.json?cb=" + Date.now(), { cache: "no-store" });
+    if (r.ok) {
+      const data = await r.json();
+      const have = normalizeBoard(data.board || "");
+      const urls = (data.images || []).map(i => typeof i === "string" ? i : i && i.url).filter(Boolean);
+      if (urls.length && (!want || want === have)) {
+        setStatus(urls.length + " images (synchro officielle).", "ok");
+        return urls;
+      }
+    }
+  } catch (e) { /* pas de pins.json → on tente le RSS */ }
+  // 2) Repli : flux RSS public (n'importe quel tableau, ~25 épingles max)
+  const rss = buildRssUrl(inputValue);
+  if (!rss) throw new Error("indique un pseudo ou une URL Pinterest");
+  const xml = await fetchFeed(rss);
+  return extractImages(xml);
+}
+
 // ---------- Lancement ----------
 $("go").addEventListener("click", async () => {
-  const rss = buildRssUrl($("src").value);
-  if (!rss) { setStatus("Indique un pseudo ou une URL Pinterest.", "err"); return; }
-
   const sel = $("interval").value;
   if (sel === "custom") {
     const secs = parseFloat($("customInterval").value);
@@ -367,11 +396,10 @@ $("go").addEventListener("click", async () => {
   fitClass = "fit-" + $("fit").value;
   const shuffle = $("shuffle").checked;
 
-  setStatus("Récupération du flux…");
+  setStatus("Récupération des images…");
   $("go").disabled = true;
   try {
-    const xml = await fetchFeed(rss);
-    images = extractImages(xml);
+    images = await getImages($("src").value);
     if (shuffle) for (let i = images.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
     }

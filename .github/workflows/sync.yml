@@ -1,0 +1,45 @@
+name: Sync Pinterest board
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"     # toutes les 6 heures
+  workflow_dispatch: {}         # bouton « Run workflow » manuel
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-pins
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Récupérer les épingles → pins.json
+        env:
+          PINTEREST_CLIENT_ID: ${{ secrets.PINTEREST_CLIENT_ID }}
+          PINTEREST_CLIENT_SECRET: ${{ secrets.PINTEREST_CLIENT_SECRET }}
+          PINTEREST_REFRESH_TOKEN: ${{ secrets.PINTEREST_REFRESH_TOKEN }}
+          BOARD_NAME: diaporama
+          BOARD_USER: Pseba37
+        run: node sync.mjs
+
+      - name: Commit si pins.json a changé
+        run: |
+          if [ -n "$(git status --porcelain pins.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add pins.json
+            git commit -m "Sync des épingles Pinterest"
+            git push
+            echo "pins.json mis à jour."
+          else
+            echo "Aucun changement."
+          fi
