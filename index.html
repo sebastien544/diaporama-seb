@@ -119,8 +119,8 @@
 
     <label for="quality">Qualité des images</label>
     <select id="quality">
-      <option value="originals">Originale (max) — la plus lourde</option>
-      <option value="1200x" selected>Élevée — 1200 px (recommandé)</option>
+      <option value="originals">Originale (max) — la plus nette</option>
+      <option value="1200x" selected>Élevée — 1200 px (bon compromis)</option>
       <option value="736x">Standard — 736 px</option>
       <option value="564x">Éco — 564 px (data réduite)</option>
     </select>
@@ -143,6 +143,11 @@
       Astuce iPad : « Partager → Sur l'écran d'accueil » pour un vrai plein écran.<br>
       Seuls les <b>tableaux publics</b> sont accessibles via RSS. Tableaux secrets → API officielle (étape suivante).
     </div>
+
+    <button type="button" id="clearcache"
+      style="margin-top:14px; background:none; border:1px solid #333; color:var(--muted); padding:10px 14px; border-radius:10px; font-size:13px; cursor:pointer;">
+      Vider le cache des images
+    </button>
   </div>
 </div>
 
@@ -237,9 +242,24 @@ function extractImages(xmlText) {
 function upscale(url) {
   return url.replace(/i\.pinimg\.com\/\d+x\//, "i.pinimg.com/736x/");
 }
-// Réécrit la taille de l'image i.pinimg.com selon la qualité choisie (repli auto si indispo).
-function sizedUrl(url) {
-  return url.replace(/(i\.pinimg\.com\/)(?:\d+x|originals)(\/)/, "$1" + quality + "$2");
+// Réécrit la taille dans une URL i.pinimg.com (en conservant l'extension).
+function sizeSwap(url, size) {
+  return url.replace(/(i\.pinimg\.com\/)(?:\d+x|originals)(\/)/, "$1" + size + "$2");
+}
+
+// Liste ordonnée des URLs à tenter pour une image, selon la qualité choisie.
+// En « Originale », on vise le vrai fichier d'origine dont l'extension peut différer
+// (souvent .png), avec repli sur /1200x/ puis l'URL d'origine.
+function candidates(url) {
+  if (!/i\.pinimg\.com\//.test(url)) return [url];                 // photos locales, etc.
+  if (quality === "originals") {
+    const m = url.match(/(https:\/\/i\.pinimg\.com\/)(?:\d+x|originals)(\/[^?]+?)\.(?:jpg|jpeg|png|webp|gif)/i);
+    if (m) {
+      const stem = m[1] + "originals" + m[2];
+      return [stem + ".jpg", stem + ".png", stem + ".webp", sizeSwap(url, "1200x"), url];
+    }
+  }
+  return [sizeSwap(url, quality), url];
 }
 
 // ---------- État du diaporama ----------
@@ -269,14 +289,22 @@ function startShow() {
 
 function loadInto(imgEl, url) {
   return new Promise(resolve => {
-    const want = sizedUrl(url);
-    imgEl.onload = () => resolve(true);
-    imgEl.onerror = () => {            // taille demandée indisponible → repli sur l'URL d'origine
-      imgEl.onerror = () => resolve(false);
-      imgEl.src = url;
+    const seq = candidates(url);     // plusieurs URLs à tenter dans l'ordre
+    let i = 0;
+    const tryNext = () => {
+      if (i >= seq.length) { resolve(false); return; }
+      const u = seq[i++];
+      imgEl.onload = () => resolve(true);
+      imgEl.onerror = () => { evictFromCache(u); tryNext(); };   // purge l'entrée + tente la suivante
+      imgEl.src = u;
     };
-    imgEl.src = want;
+    tryNext();
   });
+}
+
+// Retire une image du cache (auto-réparation si une entrée est corrompue/incomplète).
+function evictFromCache(u) {
+  if ("caches" in window) caches.open("pins-img-v1").then(c => c.delete(u)).catch(() => {});
 }
 
 function display(i, immediate) {
@@ -291,7 +319,7 @@ function display(i, immediate) {
   counter.textContent = (idx + 1) + " / " + images.length;
   // précharge la suivante
   const nextUrl = images[(idx + 1) % images.length];
-  const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = sizedUrl(nextUrl);
+  const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = candidates(nextUrl)[0];
 }
 
 function next() { display(idx + 1); schedule(); }
@@ -482,6 +510,10 @@ $("source").addEventListener("change", applySource);
 $("files").addEventListener("change", () => {
   const n = ($("files").files || []).length;
   $("filecount").textContent = n ? (n + " photo(s) sélectionnée(s)") : "";
+});
+$("clearcache").addEventListener("click", async () => {
+  if ("caches" in window) await caches.delete("pins-img-v1");
+  setStatus("Cache des images vidé.", "ok");
 });
 
 // restaure la dernière saisie, sinon tableau par défaut
