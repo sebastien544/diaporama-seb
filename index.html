@@ -74,11 +74,25 @@
 <div id="setup">
   <div class="panel">
     <h1>Diaporama <span class="dot">Pinterest</span></h1>
-    <div class="sub">Récupère les images d'un profil ou d'un tableau public et les fait défiler en plein écran.</div>
+    <div class="sub">Affiche des images en diaporama plein écran, depuis Pinterest ou tes propres photos.</div>
 
-    <label for="src">Profil ou tableau Pinterest</label>
-    <input id="src" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
-      placeholder="ex. pseudo  ou  pinterest.com/pseudo/mon-tableau">
+    <label for="source">Source</label>
+    <select id="source">
+      <option value="pinterest" selected>Pinterest</option>
+      <option value="photos">Mes photos (iPad)</option>
+    </select>
+
+    <div id="src-group">
+      <label for="src">Profil ou tableau Pinterest</label>
+      <input id="src" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
+        placeholder="ex. pseudo  ou  pinterest.com/pseudo/mon-tableau">
+    </div>
+
+    <div id="photos-group" style="display:none;">
+      <label for="files">Choisir des photos</label>
+      <input id="files" type="file" accept="image/*" multiple>
+      <div id="filecount" class="hint"></div>
+    </div>
 
     <div class="row">
       <div>
@@ -380,7 +394,16 @@ function normalizeBoard(input) {
   return s;
 }
 
-async function getImages(inputValue) {
+async function getImages() {
+  // Source « Mes photos » : images locales choisies par l'utilisateur (non mémorisées)
+  if ($("source").value === "photos") {
+    const files = [...($("files").files || [])].filter(f => f.type.startsWith("image/"));
+    if (!files.length) throw new Error("choisis au moins une photo");
+    setStatus(files.length + " photo(s).", "ok");
+    return files.map(f => URL.createObjectURL(f));
+  }
+  // Source « Pinterest »
+  const inputValue = $("src").value;
   const want = normalizeBoard(inputValue);
   // 1) Données synchronisées via l'API officielle (pins.json, même origine, TOUTES les épingles)
   try {
@@ -420,7 +443,7 @@ $("go").addEventListener("click", async () => {
   setStatus("Récupération des images…");
   $("go").disabled = true;
   try {
-    images = await getImages($("src").value);
+    images = await getImages();
     if (shuffle) for (let i = images.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
     }
@@ -432,10 +455,11 @@ $("go").addEventListener("click", async () => {
       localStorage.setItem("pin_src", $("src").value);
       localStorage.setItem("pin_quality", quality);
       localStorage.setItem("pin_limit", String(limit));
+      localStorage.setItem("pin_source", $("source").value);
       startShow();
     }
   } catch (e) {
-    setStatus("Échec : " + e.message + ". Réessaie (proxy occupé) ou vérifie l'URL.", "err");
+    setStatus("Échec : " + e.message + ".", "err");
   } finally {
     $("go").disabled = false;
   }
@@ -448,10 +472,24 @@ $("interval").addEventListener("change", () => {
   if (custom) $("customInterval").focus();
 });
 
+// Bascule l'affichage selon la source choisie (Pinterest ↔ photos)
+function applySource() {
+  const photos = $("source").value === "photos";
+  $("photos-group").style.display = photos ? "block" : "none";
+  $("src-group").style.display = photos ? "none" : "block";
+}
+$("source").addEventListener("change", applySource);
+$("files").addEventListener("change", () => {
+  const n = ($("files").files || []).length;
+  $("filecount").textContent = n ? (n + " photo(s) sélectionnée(s)") : "";
+});
+
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
 $("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
+$("source").value = localStorage.getItem("pin_source") || "pinterest";
+applySource();
 
 // Service Worker : cache-first des images (économie de data + hors-ligne)
 if ("serviceWorker" in navigator) {
