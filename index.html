@@ -106,8 +106,8 @@
     <label for="quality">Qualité des images</label>
     <select id="quality">
       <option value="originals">Originale (max) — la plus lourde</option>
-      <option value="1200x">Élevée — 1200 px</option>
-      <option value="736x" selected>Standard — 736 px (recommandé)</option>
+      <option value="1200x" selected>Élevée — 1200 px (recommandé)</option>
+      <option value="736x">Standard — 736 px</option>
       <option value="564x">Éco — 564 px (data réduite)</option>
     </select>
 
@@ -235,7 +235,7 @@ let playing = true;
 let timer = null;
 let interval = 5000;
 let fitClass = "fit-contain";
-let quality = "736x";
+let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
 
@@ -450,7 +450,7 @@ $("interval").addEventListener("change", () => {
 
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
-$("quality").value = localStorage.getItem("pin_quality") || "736x";
+$("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
 
 // Service Worker : cache-first des images (économie de data + hors-ligne)
