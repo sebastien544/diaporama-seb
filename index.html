@@ -111,6 +111,15 @@
       <option value="564x">Éco — 564 px (data réduite)</option>
     </select>
 
+    <label for="limit">Images par session</label>
+    <select id="limit">
+      <option value="10">10</option>
+      <option value="25" selected>25</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+      <option value="0">Toutes</option>
+    </select>
+
     <label class="chk"><input type="checkbox" id="shuffle" checked> Mélanger l'ordre (aléatoire)</label>
 
     <button class="go" id="go">▶︎ Lancer le diaporama</button>
@@ -227,6 +236,7 @@ let timer = null;
 let interval = 5000;
 let fitClass = "fit-contain";
 let quality = "736x";
+let limit = 25;
 let frontIsA = true;
 
 const showEl = $("show"), setupEl = $("setup");
@@ -404,6 +414,7 @@ $("go").addEventListener("click", async () => {
   }
   fitClass = "fit-" + $("fit").value;
   quality = $("quality").value;
+  limit = parseInt($("limit").value, 10) || 0;
   const shuffle = $("shuffle").checked;
 
   setStatus("Récupération des images…");
@@ -413,12 +424,14 @@ $("go").addEventListener("click", async () => {
     if (shuffle) for (let i = images.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
     }
+    if (limit > 0 && images.length > limit) images = images.slice(0, limit);
     if (images.length === 0) {
       setStatus("Aucune image trouvée. Le tableau est-il public ?", "err");
     } else {
       setStatus(images.length + " images chargées.", "ok");
       localStorage.setItem("pin_src", $("src").value);
       localStorage.setItem("pin_quality", quality);
+      localStorage.setItem("pin_limit", String(limit));
       startShow();
     }
   } catch (e) {
@@ -438,6 +451,7 @@ $("interval").addEventListener("change", () => {
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
 $("quality").value = localStorage.getItem("pin_quality") || "736x";
+$("limit").value = localStorage.getItem("pin_limit") || "25";
 
 // Service Worker : cache-first des images (économie de data + hors-ligne)
 if ("serviceWorker" in navigator) {
