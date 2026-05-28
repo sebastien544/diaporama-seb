@@ -1,7 +1,33 @@
-# Brancher l'API officielle Pinterest (à faire une fois l'app approuvée)
+# Brancher l'API officielle Pinterest
 
-Tant que l'app Pinterest est en *Trial access pending*, rien à faire : la synchro est
-en veille (elle ne plante pas). Dès réception de l'**App ID** + **App secret** :
+Deux façons de faire, selon où en est la validation de l'app.
+
+## 🅰️ Tout de suite, sans attendre l'approbation (jeton d'essai)
+
+Le portail Pinterest permet de générer un **access token d'accès limité** (« trial / generate
+token ») sans `client secret`. Il donne accès à **ton propre compte**, donc à ton tableau —
+c'est suffisant pour faire tourner la synchro dès maintenant.
+
+⚠️ Limite : sans `client secret`, **pas de rafraîchissement automatique**. Ce jeton expire
+(≈ 30 jours, l'écran de génération indique la durée) → il faudra le **regénérer à la main** et
+remettre à jour le secret GitHub. La synchro affiche un message clair le jour où il expire.
+
+1. Sur le portail Pinterest, génère un access token avec les scopes `boards:read,pins:read`.
+2. Enregistre-le comme secret GitHub (sans le faire transiter par le chat) :
+   ```bash
+   gh secret set PINTEREST_ACCESS_TOKEN --repo sebastien544/diaporama-seb
+   ```
+3. Lance la synchro :
+   ```bash
+   gh workflow run "Sync Pinterest board" --repo sebastien544/diaporama-seb
+   ```
+
+Quand tu passeras au mode 🅱️ ci-dessous, le refresh token devient prioritaire automatiquement —
+tu pourras alors supprimer le secret `PINTEREST_ACCESS_TOKEN`.
+
+## 🅱️ Une fois l'app approuvée (rafraîchissement automatique, sans entretien)
+
+Dès réception de l'**App ID** + **App secret** :
 
 ## 1. Récupérer le refresh token (une seule fois, en local)
 

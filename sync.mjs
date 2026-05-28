@@ -1,44 +1,60 @@
 // Synchronise toutes les épingles d'un tableau Pinterest vers pins.json (via l'API officielle v5).
-// Exécuté par la GitHub Action. Secrets requis :
-//   PINTEREST_CLIENT_ID, PINTEREST_CLIENT_SECRET, PINTEREST_REFRESH_TOKEN
+// Exécuté par la GitHub Action. Deux modes d'authentification possibles :
+//   A) Jeton direct (app en accès d'essai, sans client secret) : PINTEREST_ACCESS_TOKEN
+//      → utilisé tel quel, jusqu'à son expiration (≈30 j) ; à regénérer à la main ensuite.
+//   B) Rafraîchissement automatique (app approuvée) :
+//      PINTEREST_CLIENT_ID, PINTEREST_CLIENT_SECRET, PINTEREST_REFRESH_TOKEN
+// Si les deux sont fournis, le refresh token (B) est prioritaire car il ne périme jamais seul.
 // Variables : BOARD_NAME (défaut "diaporama"), BOARD_USER (défaut "Pseba37"), BOARD_ID (optionnel).
 
 import fs from "node:fs";
 
 const API = "https://api.pinterest.com/v5";
 const { PINTEREST_CLIENT_ID: CLIENT_ID, PINTEREST_CLIENT_SECRET: CLIENT_SECRET,
-        PINTEREST_REFRESH_TOKEN: REFRESH_TOKEN } = process.env;
+        PINTEREST_REFRESH_TOKEN: REFRESH_TOKEN, PINTEREST_ACCESS_TOKEN: ACCESS_TOKEN } = process.env;
 const BOARD_NAME = (process.env.BOARD_NAME || "diaporama").toLowerCase();
 const BOARD_USER = process.env.BOARD_USER || "Pseba37";
 const BOARD_ID = process.env.BOARD_ID || "";
 
-if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
-  // Secrets pas encore configurés (app Pinterest en attente d'approbation) :
+const canRefresh = CLIENT_ID && CLIENT_SECRET && REFRESH_TOKEN;
+if (!canRefresh && !ACCESS_TOKEN) {
+  // Aucun identifiant configuré (app Pinterest en attente d'approbation) :
   // on ne fait rien et on sort en succès pour éviter les e-mails d'échec.
-  console.log("⏭️  Secrets Pinterest absents → synchro ignorée pour l'instant.");
+  console.log("⏭️  Identifiants Pinterest absents → synchro ignorée pour l'instant.");
   process.exit(0);
 }
 
 async function getAccessToken() {
-  const basic = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
-  const r = await fetch(`${API}/oauth/token`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: REFRESH_TOKEN }),
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(`token ${r.status}: ${JSON.stringify(j)}`);
-  if (j.refresh_token && j.refresh_token !== REFRESH_TOKEN) {
-    console.warn("⚠️ Pinterest a renvoyé un NOUVEAU refresh token — pense à mettre à jour le secret PINTEREST_REFRESH_TOKEN si l'auth échoue plus tard.");
+  // Mode B : rafraîchissement via client_id/secret (prioritaire, ne périme pas tout seul).
+  if (canRefresh) {
+    const basic = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
+    const r = await fetch(`${API}/oauth/token`, {
+      method: "POST",
+      headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: REFRESH_TOKEN }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(`token ${r.status}: ${JSON.stringify(j)}`);
+    if (j.refresh_token && j.refresh_token !== REFRESH_TOKEN) {
+      console.warn("⚠️ Pinterest a renvoyé un NOUVEAU refresh token — pense à mettre à jour le secret PINTEREST_REFRESH_TOKEN si l'auth échoue plus tard.");
+    }
+    return j.access_token;
   }
-  return j.access_token;
+  // Mode A : jeton d'essai fourni directement (sans secret → pas de rafraîchissement possible).
+  console.log("ℹ️  Mode jeton direct (accès d'essai) : sera à regénérer à la main à l'expiration.");
+  return ACCESS_TOKEN;
 }
 
 async function apiGet(path, token, params = {}) {
   const url = new URL(API + path);
   for (const [k, v] of Object.entries(params)) if (v != null && v !== "") url.searchParams.set(k, v);
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) throw new Error(`GET ${path} ${r.status}: ${await r.text()}`);
+  if (!r.ok) {
+    if (r.status === 401 && !canRefresh) {
+      throw new Error(`GET ${path} 401 : jeton expiré ou invalide. Regénère un jeton d'essai sur le portail Pinterest puis mets à jour le secret PINTEREST_ACCESS_TOKEN. (${await r.text()})`);
+    }
+    throw new Error(`GET ${path} ${r.status}: ${await r.text()}`);
+  }
   return r.json();
 }
 
