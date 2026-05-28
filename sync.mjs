@@ -50,10 +50,18 @@ async function apiGet(path, token, params = {}) {
   for (const [k, v] of Object.entries(params)) if (v != null && v !== "") url.searchParams.set(k, v);
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) {
-    if (r.status === 401 && !canRefresh) {
-      throw new Error(`GET ${path} 401 : jeton expiré ou invalide. Regénère un jeton d'essai sur le portail Pinterest puis mets à jour le secret PINTEREST_ACCESS_TOKEN. (${await r.text()})`);
+    const body = await r.text();
+    if (r.status === 401 && /consumer type is not supported/i.test(body)) {
+      // App encore en « Trial access pending » : Pinterest refuse TOUS les appels API.
+      // On se met en veille (sortie en succès) pour ne pas spammer d'e-mails d'échec ;
+      // la synchro repartira seule dès que l'app sera approuvée.
+      console.log("⏭️  App Pinterest pas encore approuvée (« consumer type not supported ») → synchro en veille. Elle repartira automatiquement une fois la validation obtenue.");
+      process.exit(0);
     }
-    throw new Error(`GET ${path} ${r.status}: ${await r.text()}`);
+    if (r.status === 401 && !canRefresh) {
+      throw new Error(`GET ${path} 401 : jeton expiré ou invalide. Regénère un jeton d'essai sur le portail Pinterest puis mets à jour le secret PINTEREST_ACCESS_TOKEN. (${body})`);
+    }
+    throw new Error(`GET ${path} ${r.status}: ${body}`);
   }
   return r.json();
 }
