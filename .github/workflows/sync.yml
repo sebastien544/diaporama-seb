@@ -1,8 +1,11 @@
 name: Sync Pinterest board
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"     # toutes les 6 heures
+  # Planification désactivée tant que l'app Pinterest est en validation
+  # (le jeton d'essai renvoie 401, la synchro tournerait pour rien).
+  # Réactiver en décommentant le bloc ci-dessous une fois l'app approuvée.
+  # schedule:
+  #   - cron: "0 */6 * * *"     # toutes les 6 heures
   workflow_dispatch: {}         # bouton « Run workflow » manuel
 
 permissions:
