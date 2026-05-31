@@ -134,6 +134,8 @@
           placeholder="ex. intelligence artificielle, Tours…">
         <button type="button" id="news-add">Ajouter</button>
       </div>
+      <div class="hint">Les <b>thèmes</b> affichent des images (flux des éditeurs).
+        Les <b>mots-clés</b> passent par Google&nbsp;News : actus ciblées mais en texte seul.</div>
       <label>Mes sujets (mémorisés)</label>
       <div id="news-selected" class="chips"></div>
     </div>
@@ -560,21 +562,33 @@ async function getImages() {
   return extractImages(xml);
 }
 
-// ---------- Source « Google Actu » : flux RSS Google News ----------
+// ---------- Source « Google Actu » : flux RSS ----------
+// Google News ne met AUCUNE image dans son RSS → pour les thèmes on tape
+// directement les flux d'éditeurs (qui, eux, fournissent des images).
+// Les mots-clés restent sur Google News (recherche libre, mais sans image).
 const NEWS_CEID = "hl=fr&gl=FR&ceid=FR:fr";
-// Libellé → identifiant de thème Google News ("" = À la une)
-const NEWS_TOPICS = {
-  "À la une": "", "France": "NATION", "Monde": "WORLD", "Économie": "BUSINESS",
-  "Tech": "TECHNOLOGY", "Sciences": "SCIENCE", "Santé": "HEALTH",
-  "Sport": "SPORTS", "Culture": "ENTERTAINMENT",
+const M20 = "https://www.20minutes.fr/feeds/rss-";   // flux par rubrique, avec images
+// Libellé de thème → flux d'éditeurs à agréger ({url, name, domain})
+const NEWS_FEEDS = {
+  "À la une": [{ url: M20 + "une.xml", name: "20 Minutes", domain: "20minutes.fr" },
+               { url: "https://www.lemonde.fr/rss/une.xml", name: "Le Monde", domain: "lemonde.fr" }],
+  "France":   [{ url: M20 + "france.xml",    name: "20 Minutes", domain: "20minutes.fr" }],
+  "Monde":    [{ url: M20 + "monde.xml",     name: "20 Minutes", domain: "20minutes.fr" }],
+  "Économie": [{ url: M20 + "economie.xml",  name: "20 Minutes", domain: "20minutes.fr" }],
+  "Tech":     [{ url: M20 + "high-tech.xml", name: "20 Minutes", domain: "20minutes.fr" }],
+  "Sciences": [{ url: M20 + "sciences.xml",  name: "20 Minutes", domain: "20minutes.fr" }],
+  "Santé":    [{ url: M20 + "sante.xml",     name: "20 Minutes", domain: "20minutes.fr" }],
+  "Sport":    [{ url: M20 + "sport.xml",     name: "20 Minutes", domain: "20minutes.fr" }],
+  "Culture":  [{ url: M20 + "culture.xml",   name: "20 Minutes", domain: "20minutes.fr" }],
 };
-const NEWS_PRESETS = Object.keys(NEWS_TOPICS);
+const NEWS_PRESETS = Object.keys(NEWS_FEEDS);
 
-function buildNewsUrl(s) {
+// Flux à interroger pour un sujet (thème = éditeurs ; mot-clé = Google News).
+function feedsForSubject(s) {
   if (s.kind === "search")
-    return "https://news.google.com/rss/search?q=" + encodeURIComponent(s.value) + "&" + NEWS_CEID;
-  if (!s.value) return "https://news.google.com/rss?" + NEWS_CEID;            // À la une
-  return "https://news.google.com/rss/headlines/section/topic/" + s.value + "?" + NEWS_CEID;
+    return [{ url: "https://news.google.com/rss/search?q=" + encodeURIComponent(s.value) + "&" + NEWS_CEID,
+              name: "", domain: "" }];
+  return NEWS_FEEDS[s.label] || [];
 }
 
 function domainOf(url) {
@@ -596,19 +610,19 @@ function relTime(pub) {
   return "il y a " + Math.floor(s / 86400) + " j";
 }
 
-// Convertit un flux RSS Google News en objets actu.
-function parseNewsItems(xmlText, topicLabel) {
+// Convertit un flux RSS en objets actu. fb = source/domaine de repli (flux éditeur).
+function parseNewsItems(xmlText, fb) {
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   const out = [];
   for (const item of [...doc.querySelectorAll("item")]) {
     let title = item.querySelector("title")?.textContent?.trim() || "";
     const srcEl = item.querySelector("source");
-    const source = srcEl?.textContent?.trim() || "";
-    const srcUrl = srcEl?.getAttribute("url") || "";
+    const source = srcEl?.textContent?.trim() || fb.name || "";
+    const srcUrl = srcEl?.getAttribute("url") || (fb.domain ? "https://" + fb.domain : "");
     // Les titres Google News finissent par « - Nom de la source » : on l'enlève.
     if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
     const pub = item.querySelector("pubDate")?.textContent || "";
-    // Image éventuelle (rare dans Google News, fréquent dans d'autres flux)
+    // Image (media:content / media:thumbnail / enclosure, sinon <img> dans la description)
     let image = "";
     const media = item.getElementsByTagName("media:content")[0]
                || item.getElementsByTagName("media:thumbnail")[0]
@@ -619,7 +633,7 @@ function parseNewsItems(xmlText, topicLabel) {
         .match(/<img[^>]+src=["']([^"']+)["']/i);
       if (m) image = m[1];
     }
-    if (title) out.push({ title, source: source || topicLabel, srcUrl, pub, image, topic: topicLabel });
+    if (title) out.push({ title, source, srcUrl, pub, image });
   }
   return out;
 }
@@ -632,15 +646,17 @@ async function fetchNews() {
   const seen = new Set();
   let okCount = 0;
   for (const s of subjects) {
-    try {
-      const xml = await fetchFeed(buildNewsUrl(s));
-      okCount++;
-      for (const it of parseNewsItems(xml, s.label)) {
-        const key = it.title.toLowerCase().slice(0, 80);
-        if (seen.has(key)) continue;
-        seen.add(key); all.push(it);
-      }
-    } catch (e) { /* sujet ignoré, on continue */ }
+    for (const f of feedsForSubject(s)) {
+      try {
+        const xml = await fetchFeed(f.url);
+        okCount++;
+        for (const it of parseNewsItems(xml, { name: f.name, domain: f.domain })) {
+          const key = it.title.toLowerCase().slice(0, 80);
+          if (seen.has(key)) continue;
+          seen.add(key); all.push(it);
+        }
+      } catch (e) { /* flux ignoré, on continue */ }
+    }
   }
   if (!okCount) throw new Error("réseau ou proxy indisponible");
   if (!all.length) throw new Error("aucune actu trouvée pour ces sujets");
@@ -649,7 +665,11 @@ async function fetchNews() {
 
 // ----- Gestion des sujets mémorisés (localStorage) -----
 function loadSubjects() {
-  try { return JSON.parse(localStorage.getItem("news_subjects") || "[]"); } catch (e) { return []; }
+  try {
+    const l = JSON.parse(localStorage.getItem("news_subjects") || "[]");
+    // Normalise : pour un thème, la valeur est désormais son libellé (anciennement un id Google).
+    return l.map(s => s.kind === "topic" ? { kind: "topic", value: s.label, label: s.label } : s);
+  } catch (e) { return []; }
 }
 function saveSubjects(list) { localStorage.setItem("news_subjects", JSON.stringify(list)); }
 function subjectKey(s) { return s.kind + ":" + s.value; }
@@ -661,7 +681,7 @@ function renderSubjects() {
   const presetsEl = $("news-presets");
   presetsEl.innerHTML = "";
   for (const label of NEWS_PRESETS) {
-    const s = { kind: "topic", value: NEWS_TOPICS[label], label };
+    const s = { kind: "topic", value: label, label };
     const b = document.createElement("button");
     b.type = "button";
     b.className = "chip" + (have.has(subjectKey(s)) ? " on" : "");
