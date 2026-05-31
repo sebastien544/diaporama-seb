@@ -272,7 +272,7 @@ async function fetchFeed(rssUrl) {
   let lastErr;
   for (const make of PROXIES) {
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 8000);
+    const to = setTimeout(() => ctrl.abort(), 12000);
     try {
       const r = await fetch(make(rssUrl), {
         headers: { "Accept": "application/rss+xml,text/xml,*/*" },
@@ -647,30 +647,35 @@ function parseNewsItems(xmlText, fb) {
 }
 
 // Récupère et fusionne les actus de tous les sujets mémorisés.
-// Tous les flux sont interrogés EN PARALLÈLE (un flux lent ne bloque plus les autres).
+// Tous les flux sont interrogés EN PARALLÈLE, chacun totalement isolé :
+// un flux qui échoue (réseau OU parsing) ne peut pas faire tomber les autres.
 async function fetchNews() {
   const subjects = loadSubjects();
   if (!subjects.length) throw new Error("ajoute au moins un sujet (thème ou mot-clé)");
   const feeds = subjects.flatMap(feedsForSubject);
-  const results = await Promise.all(feeds.map(f =>
-    fetchFeed(f.url).then(
-      xml => ({ ok: true,  items: parseNewsItems(xml, { name: f.name, domain: f.domain }) }),
-      ()  => ({ ok: false, items: [] })
-    )
-  ));
+  if (!feeds.length) throw new Error("aucun flux disponible pour ces sujets");
+  let lastErr = "";
+  const results = await Promise.all(feeds.map(async f => {
+    try {
+      const xml = await fetchFeed(f.url);
+      return parseNewsItems(xml, { name: f.name, domain: f.domain });
+    } catch (e) { lastErr = (e && e.message) || String(e); return null; }
+  }));
   const all = [];
   const seen = new Set();
   let okCount = 0;
-  for (const r of results) {
-    if (r.ok) okCount++;
-    for (const it of r.items) {
+  for (const items of results) {
+    if (!items) continue;
+    okCount++;
+    for (const it of items) {
       const key = it.title.toLowerCase().slice(0, 80);
       if (seen.has(key)) continue;
       seen.add(key); all.push(it);
     }
   }
-  if (!okCount) throw new Error("réseau ou proxy indisponible");
-  if (!all.length) throw new Error("aucune actu trouvée pour ces sujets");
+  // Diagnostic visible : combien de flux ont répondu, et la dernière erreur.
+  if (!all.length)
+    throw new Error(okCount + "/" + feeds.length + " flux OK" + (lastErr ? " — " + lastErr : ""));
   return all;
 }
 
