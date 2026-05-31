@@ -231,13 +231,33 @@
 <script>
 "use strict";
 
-// Proxies CORS essayés dans l'ordre (le flux RSS de Pinterest n'autorise pas l'accès direct).
-// codetabs est le plus fiable au test ; les autres servent de secours s'il sature.
+// Proxies CORS essayés dans l'ordre (les flux RSS n'autorisent pas l'accès direct
+// depuis un navigateur). Chacun renvoie parfois un corps vide ou une erreur :
+// d'où le réessai et la cascade vers les suivants dans fetchFeed.
+// `json:true` → réponse enveloppée dans un JSON {contents:"…"} (allorigins/get).
 const PROXIES = [
-  url => "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(url),
-  url => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
-  url => "https://thingproxy.freeboard.io/fetch/" + url,
+  { make: u => "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(u), json: false },
+  { make: u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),       json: false },
+  { make: u => "https://api.allorigins.win/get?url=" + encodeURIComponent(u),        json: true  },
 ];
+
+// Extrait le contenu utile selon le proxy (allorigins/get l'enveloppe dans du JSON).
+function decodeProxyBody(txt, isJson) {
+  if (!isJson) return txt;
+  try { return JSON.parse(txt).contents || ""; } catch (e) { return ""; }
+}
+
+// Limite le nombre de tâches simultanées (évite de saturer un proxy → corps vides).
+async function runPool(items, worker, concurrency) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function run() {
+    while (next < items.length) { const i = next++; results[i] = await worker(items[i], i); }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return results;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const $ = id => document.getElementById(id);
 const statusEl = $("status");
@@ -265,27 +285,28 @@ function buildRssUrl(input) {
   return `https://www.pinterest.com/${parts[0]}/${parts[1]}.rss`;
 }
 
-// Récupère le texte du flux via le premier proxy qui répond.
-// Chaque tentative est limitée dans le temps : un proxy lent est abandonné
-// pour passer au suivant au lieu de bloquer toute la récupération.
+// Récupère le texte du flux via le premier proxy qui répond AVEC un vrai contenu.
+// Robustesse : un proxy qui renvoie un corps vide (cas fréquent de codetabs sous
+// charge) est réessayé une fois, puis on passe au proxy suivant. Chaque tentative
+// est bornée dans le temps pour ne pas bloquer la récupération.
 async function fetchFeed(rssUrl) {
   let lastErr;
-  for (const make of PROXIES) {
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 12000);
-    try {
-      const r = await fetch(make(rssUrl), {
-        headers: { "Accept": "application/rss+xml,text/xml,*/*" },
-        signal: ctrl.signal,
-      });
-      if (!r.ok) { lastErr = new Error("HTTP " + r.status); continue; }
-      const txt = await r.text();
-      if (txt && txt.includes("<item")) return txt;
-      lastErr = new Error("Flux vide ou tableau privé/inexistant");
-    } catch (e) { lastErr = e; }
-    finally { clearTimeout(to); }
+  for (const p of PROXIES) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await sleep(500);                 // petit répit avant de réessayer
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 9000);
+      try {
+        const r = await fetch(p.make(rssUrl), { signal: ctrl.signal });
+        if (!r.ok) { lastErr = new Error("HTTP " + r.status); break; }   // statut KO → proxy suivant
+        const body = decodeProxyBody(await r.text(), p.json);
+        if (body && body.includes("<item")) return body;
+        lastErr = new Error("réponse vide");                              // vide → on réessaie
+      } catch (e) { lastErr = (e && e.name === "AbortError") ? new Error("délai dépassé") : e; }
+      finally { clearTimeout(to); }
+    }
   }
-  throw lastErr || new Error("Aucun proxy n'a répondu");
+  throw lastErr || new Error("aucun proxy n'a répondu");
 }
 
 // Extrait les URLs d'images du flux et les passe en haute résolution.
@@ -655,12 +676,13 @@ async function fetchNews() {
   const feeds = subjects.flatMap(feedsForSubject);
   if (!feeds.length) throw new Error("aucun flux disponible pour ces sujets");
   let lastErr = "";
-  const results = await Promise.all(feeds.map(async f => {
+  // Max 3 flux à la fois : assez rapide, sans saturer les proxys.
+  const results = await runPool(feeds, async f => {
     try {
       const xml = await fetchFeed(f.url);
       return parseNewsItems(xml, { name: f.name, domain: f.domain });
     } catch (e) { lastErr = (e && e.message) || String(e); return null; }
-  }));
+  }, 3);
   const all = [];
   const seen = new Set();
   let okCount = 0;
