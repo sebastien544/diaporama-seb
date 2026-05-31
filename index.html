@@ -15,9 +15,12 @@
   body { overflow:hidden; }
 
   /* ----- Écran de configuration ----- */
-  #setup { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
-    padding:max(20px,env(safe-area-inset-top)) 20px; overflow:auto; }
-  .panel { width:100%; max-width:480px; background:var(--card); border-radius:18px;
+  #setup { position:fixed; inset:0; display:flex;
+    padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom)); overflow:auto; }
+  /* margin:auto centre le panneau quand il tient, mais laisse le HAUT accessible
+     au défilement quand il dépasse la hauteur de l'écran (sinon align-items:center
+     rognait le haut → sélecteur de Source hors d'atteinte). */
+  .panel { width:100%; max-width:480px; margin:auto; background:var(--card); border-radius:18px;
     padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.5); }
   h1 { margin:0 0 4px; font-size:22px; }
   h1 .dot { color:var(--accent); }
