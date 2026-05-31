@@ -69,8 +69,8 @@
 
   /* ----- Cartes d'actu ----- */
   .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
-    background:#1c1c1f; }
-  .card.on { opacity:1; }
+    background:#1c1c1f; pointer-events:none; }
+  .card.on { opacity:1; pointer-events:auto; }   /* seule la carte visible reçoit les taps */
   .card-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
     opacity:0; transition:opacity .5s ease; }
   .card-bg.on { opacity:1; }
@@ -78,12 +78,16 @@
     background:linear-gradient(to top, rgba(0,0,0,.88) 0%, rgba(0,0,0,.45) 45%, rgba(0,0,0,.12) 100%); }
   .card-body { position:absolute; left:0; right:0; bottom:0;
     padding:max(28px,6vw) max(30px,6vw) calc(max(28px,6vw) + env(safe-area-inset-bottom)); }
-  .card-meta { display:flex; align-items:center; gap:10px; margin-bottom:14px;
-    font-size:clamp(14px,2.4vw,20px); color:#e7e7ea; font-weight:600; }
-  .card-fav { width:1.5em; height:1.5em; border-radius:5px; background:#fff; flex:none; }
-  .card-title { font-size:clamp(26px,5.2vw,58px); line-height:1.12; font-weight:700; color:#fff;
+  .card-meta { display:flex; align-items:center; gap:9px; margin-bottom:12px;
+    font-size:clamp(12px,1.7vw,16px); color:#e7e7ea; font-weight:600; }
+  .card-fav { width:1.4em; height:1.4em; border-radius:5px; background:#fff; flex:none; }
+  .card-title { font-size:clamp(19px,3.2vw,34px); line-height:1.18; font-weight:700; color:#fff;
     text-shadow:0 2px 12px rgba(0,0,0,.5);
-    display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
+    display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+  .card-link { display:inline-block; margin-top:16px; padding:9px 18px; border-radius:999px;
+    background:rgba(255,255,255,.16); color:#fff; text-decoration:none; font-weight:600;
+    font-size:clamp(13px,1.6vw,16px); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+  .card-link:active { background:rgba(255,255,255,.32); }
 
   /* ----- Chips (sujets actu) ----- */
   .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
@@ -208,6 +212,7 @@
     <div class="card-body">
       <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
       <div class="card-title"></div>
+      <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
     </div>
   </div>
   <div class="card" id="cardB">
@@ -216,6 +221,7 @@
     <div class="card-body">
       <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
       <div class="card-title"></div>
+      <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
     </div>
   </div>
   <div id="counter" class="hidden"></div>
@@ -458,6 +464,9 @@ function fillCard(card, it, i) {
   else { fav.style.display = "none"; }
   card.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
   card.querySelector(".card-title").textContent = it.title;
+  const link = card.querySelector(".card-link");
+  if (it.link) { link.style.display = "inline-block"; link.href = it.link; }
+  else { link.style.display = "none"; link.removeAttribute("href"); }
 }
 
 function next() { display(idx + 1); schedule(); }
@@ -662,7 +671,8 @@ function parseNewsItems(xmlText, fb) {
         .match(/<img[^>]+src=["']([^"']+)["']/i);
       if (m) image = m[1];
     }
-    if (title) out.push({ title, source, srcUrl, pub, image });
+    const link = item.querySelector("link")?.textContent?.trim() || "";
+    if (title) out.push({ title, source, srcUrl, pub, image, link });
   }
   return out;
 }
