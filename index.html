@@ -66,6 +66,36 @@
   #exit.hidden { opacity:0; pointer-events:none; }
   .spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:15px; }
+
+  /* ----- Cartes d'actu ----- */
+  .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
+    background:#1c1c1f; }
+  .card.on { opacity:1; }
+  .card-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    opacity:0; transition:opacity .5s ease; }
+  .card-bg.on { opacity:1; }
+  .card-scrim { position:absolute; inset:0;
+    background:linear-gradient(to top, rgba(0,0,0,.88) 0%, rgba(0,0,0,.45) 45%, rgba(0,0,0,.12) 100%); }
+  .card-body { position:absolute; left:0; right:0; bottom:0;
+    padding:max(28px,6vw) max(30px,6vw) calc(max(28px,6vw) + env(safe-area-inset-bottom)); }
+  .card-meta { display:flex; align-items:center; gap:10px; margin-bottom:14px;
+    font-size:clamp(14px,2.4vw,20px); color:#e7e7ea; font-weight:600; }
+  .card-fav { width:1.5em; height:1.5em; border-radius:5px; background:#fff; flex:none; }
+  .card-title { font-size:clamp(26px,5.2vw,58px); line-height:1.12; font-weight:700; color:#fff;
+    text-shadow:0 2px 12px rgba(0,0,0,.5);
+    display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
+
+  /* ----- Chips (sujets actu) ----- */
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .chip { padding:8px 12px; border-radius:999px; border:1px solid #333; background:#0c0c0e;
+    color:var(--fg); font-size:14px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
+    font-family:inherit; }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .chip .x { opacity:.75; font-size:12px; }
+  .addrow { display:flex; gap:8px; margin-top:10px; }
+  .addrow input { flex:1; }
+  .addrow button { padding:0 16px; border:1px solid #333; background:#0c0c0e; color:var(--fg);
+    border-radius:12px; font-size:15px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -80,6 +110,7 @@
     <select id="source">
       <option value="pinterest" selected>Pinterest</option>
       <option value="photos">Mes photos (iPad)</option>
+      <option value="news">Google Actu (panneau d'infos)</option>
     </select>
 
     <div id="src-group">
@@ -92,6 +123,19 @@
       <label for="files">Choisir des photos</label>
       <input id="files" type="file" accept="image/*" multiple>
       <div id="filecount" class="hint"></div>
+    </div>
+
+    <div id="news-group" style="display:none;">
+      <label>Mes thèmes</label>
+      <div id="news-presets" class="chips"></div>
+      <label for="news-kw">Ajouter un mot-clé</label>
+      <div class="addrow">
+        <input id="news-kw" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
+          placeholder="ex. intelligence artificielle, Tours…">
+        <button type="button" id="news-add">Ajouter</button>
+      </div>
+      <label>Mes sujets (mémorisés)</label>
+      <div id="news-selected" class="chips"></div>
     </div>
 
     <div class="row">
@@ -156,6 +200,22 @@
   <div class="spinner" id="spinner">Chargement…</div>
   <img id="imgA" referrerpolicy="no-referrer" alt="">
   <img id="imgB" referrerpolicy="no-referrer" alt="">
+  <div class="card" id="cardA">
+    <img class="card-bg" referrerpolicy="no-referrer" alt="">
+    <div class="card-scrim"></div>
+    <div class="card-body">
+      <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+      <div class="card-title"></div>
+    </div>
+  </div>
+  <div class="card" id="cardB">
+    <img class="card-bg" referrerpolicy="no-referrer" alt="">
+    <div class="card-scrim"></div>
+    <div class="card-body">
+      <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+      <div class="card-title"></div>
+    </div>
+  </div>
   <div id="counter" class="hidden"></div>
   <button id="exit" class="hidden">✕</button>
   <div id="controls" class="hidden">
@@ -272,9 +332,11 @@ let fitClass = "fit-contain";
 let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
+let newsMode = false;
 
 const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
+const cardA = $("cardA"), cardB = $("cardB");
 const spinner = $("spinner"), counter = $("counter");
 const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
 
@@ -282,6 +344,9 @@ function startShow() {
   setupEl.style.display = "none";
   showEl.style.display = "block";
   spinner.style.display = "none";
+  // repart d'un état propre (évite qu'une couche d'une session précédente reste visible)
+  for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
+  frontIsA = true;
   idx = 0; playing = true; playBtn.textContent = "⏸";
   display(0, true);
   schedule();
@@ -307,19 +372,61 @@ function evictFromCache(u) {
   if ("caches" in window) caches.open("pins-img-v1").then(c => c.delete(u)).catch(() => {});
 }
 
+// URL d'image d'un élément (chaîne en mode image, objet actu en mode panneau).
+function itemUrl(it) { return newsMode ? (it && it.image) : it; }
+
 function display(i, immediate) {
   idx = (i + images.length) % images.length;
+  if (newsMode) displayCard(idx); else displayImage(idx);
+  counter.textContent = (idx + 1) + " / " + images.length;
+  // précharge la suivante (si elle a une image)
+  const nextUrl = itemUrl(images[(idx + 1) % images.length]);
+  if (nextUrl) { const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = candidates(nextUrl)[0]; }
+}
+
+// Diaporama d'images (Pinterest / photos)
+function displayImage(i) {
   const front = frontIsA ? imgA : imgB;
   const back  = frontIsA ? imgB : imgA;
   back.className = fitClass;                 // (pas encore visible)
-  loadInto(back, images[idx]);
+  loadInto(back, images[i]);
   back.classList.add("on");
   front.classList.remove("on");
   frontIsA = !frontIsA;
-  counter.textContent = (idx + 1) + " / " + images.length;
-  // précharge la suivante
-  const nextUrl = images[(idx + 1) % images.length];
-  const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = candidates(nextUrl)[0];
+}
+
+// Panneau d'actu : carte (image éventuelle + titre + source + ancienneté)
+const GRADIENTS = [
+  "linear-gradient(135deg,#1e3a5f,#0c1f33)", "linear-gradient(135deg,#3f2a4d,#1a0f24)",
+  "linear-gradient(135deg,#1f4037,#0c1f1a)", "linear-gradient(135deg,#4d3319,#241608)",
+  "linear-gradient(135deg,#3a1f1f,#1a0c0c)", "linear-gradient(135deg,#1f2b4d,#0c1124)",
+];
+function displayCard(i) {
+  const front = frontIsA ? cardA : cardB;
+  const back  = frontIsA ? cardB : cardA;
+  fillCard(back, images[i], i);
+  back.classList.add("on");
+  front.classList.remove("on");
+  frontIsA = !frontIsA;
+}
+function fillCard(card, it, i) {
+  card.style.background = GRADIENTS[i % GRADIENTS.length];
+  const bg = card.querySelector(".card-bg");
+  bg.classList.remove("on");
+  if (it.image) {
+    bg.style.display = "block";
+    bg.onload  = () => bg.classList.add("on");
+    bg.onerror = () => { bg.style.display = "none"; };
+    bg.src = it.image;
+  } else {
+    bg.style.display = "none"; bg.removeAttribute("src");
+  }
+  const fav = card.querySelector(".card-fav");
+  const domain = domainOf(it.srcUrl);
+  if (domain) { fav.style.display = "inline-block"; fav.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128"; }
+  else { fav.style.display = "none"; }
+  card.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
+  card.querySelector(".card-title").textContent = it.title;
 }
 
 function next() { display(idx + 1); schedule(); }
@@ -453,6 +560,147 @@ async function getImages() {
   return extractImages(xml);
 }
 
+// ---------- Source « Google Actu » : flux RSS Google News ----------
+const NEWS_CEID = "hl=fr&gl=FR&ceid=FR:fr";
+// Libellé → identifiant de thème Google News ("" = À la une)
+const NEWS_TOPICS = {
+  "À la une": "", "France": "NATION", "Monde": "WORLD", "Économie": "BUSINESS",
+  "Tech": "TECHNOLOGY", "Sciences": "SCIENCE", "Santé": "HEALTH",
+  "Sport": "SPORTS", "Culture": "ENTERTAINMENT",
+};
+const NEWS_PRESETS = Object.keys(NEWS_TOPICS);
+
+function buildNewsUrl(s) {
+  if (s.kind === "search")
+    return "https://news.google.com/rss/search?q=" + encodeURIComponent(s.value) + "&" + NEWS_CEID;
+  if (!s.value) return "https://news.google.com/rss?" + NEWS_CEID;            // À la une
+  return "https://news.google.com/rss/headlines/section/topic/" + s.value + "?" + NEWS_CEID;
+}
+
+function domainOf(url) {
+  const m = (url || "").match(/^https?:\/\/([^\/?#]+)/i);
+  return m ? m[1].replace(/^www\./, "") : "";
+}
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, c =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+// Ancienneté lisible à partir d'une date RFC822 (pubDate)
+function relTime(pub) {
+  const t = Date.parse(pub || "");
+  if (isNaN(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return "à l'instant";
+  if (s < 3600) return "il y a " + Math.floor(s / 60) + " min";
+  if (s < 86400) return "il y a " + Math.floor(s / 3600) + " h";
+  return "il y a " + Math.floor(s / 86400) + " j";
+}
+
+// Convertit un flux RSS Google News en objets actu.
+function parseNewsItems(xmlText, topicLabel) {
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  const out = [];
+  for (const item of [...doc.querySelectorAll("item")]) {
+    let title = item.querySelector("title")?.textContent?.trim() || "";
+    const srcEl = item.querySelector("source");
+    const source = srcEl?.textContent?.trim() || "";
+    const srcUrl = srcEl?.getAttribute("url") || "";
+    // Les titres Google News finissent par « - Nom de la source » : on l'enlève.
+    if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
+    const pub = item.querySelector("pubDate")?.textContent || "";
+    // Image éventuelle (rare dans Google News, fréquent dans d'autres flux)
+    let image = "";
+    const media = item.getElementsByTagName("media:content")[0]
+               || item.getElementsByTagName("media:thumbnail")[0]
+               || item.querySelector("enclosure");
+    if (media) image = media.getAttribute("url") || "";
+    if (!image) {
+      const m = (item.querySelector("description")?.textContent || "")
+        .match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (m) image = m[1];
+    }
+    if (title) out.push({ title, source: source || topicLabel, srcUrl, pub, image, topic: topicLabel });
+  }
+  return out;
+}
+
+// Récupère et fusionne les actus de tous les sujets mémorisés.
+async function fetchNews() {
+  const subjects = loadSubjects();
+  if (!subjects.length) throw new Error("ajoute au moins un sujet (thème ou mot-clé)");
+  const all = [];
+  const seen = new Set();
+  let okCount = 0;
+  for (const s of subjects) {
+    try {
+      const xml = await fetchFeed(buildNewsUrl(s));
+      okCount++;
+      for (const it of parseNewsItems(xml, s.label)) {
+        const key = it.title.toLowerCase().slice(0, 80);
+        if (seen.has(key)) continue;
+        seen.add(key); all.push(it);
+      }
+    } catch (e) { /* sujet ignoré, on continue */ }
+  }
+  if (!okCount) throw new Error("réseau ou proxy indisponible");
+  if (!all.length) throw new Error("aucune actu trouvée pour ces sujets");
+  return all;
+}
+
+// ----- Gestion des sujets mémorisés (localStorage) -----
+function loadSubjects() {
+  try { return JSON.parse(localStorage.getItem("news_subjects") || "[]"); } catch (e) { return []; }
+}
+function saveSubjects(list) { localStorage.setItem("news_subjects", JSON.stringify(list)); }
+function subjectKey(s) { return s.kind + ":" + s.value; }
+
+function renderSubjects() {
+  const list = loadSubjects();
+  const have = new Set(list.map(subjectKey));
+  // Thèmes prédéfinis (activables)
+  const presetsEl = $("news-presets");
+  presetsEl.innerHTML = "";
+  for (const label of NEWS_PRESETS) {
+    const s = { kind: "topic", value: NEWS_TOPICS[label], label };
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip" + (have.has(subjectKey(s)) ? " on" : "");
+    b.textContent = label;
+    b.onclick = () => {
+      let l = loadSubjects();
+      l = have.has(subjectKey(s)) ? l.filter(x => subjectKey(x) !== subjectKey(s)) : [...l, s];
+      saveSubjects(l); renderSubjects();
+    };
+    presetsEl.appendChild(b);
+  }
+  // Sujets sélectionnés (thèmes + mots-clés), supprimables
+  const selEl = $("news-selected");
+  selEl.innerHTML = "";
+  if (!list.length) {
+    selEl.innerHTML = '<div class="hint">Aucun sujet : choisis des thèmes ci-dessus ou ajoute un mot-clé.</div>';
+    return;
+  }
+  for (const s of list) {
+    const c = document.createElement("span");
+    c.className = "chip on";
+    c.innerHTML = (s.kind === "search" ? "🔎 " : "") + escapeHtml(s.label) + ' <span class="x">✕</span>';
+    c.querySelector(".x").onclick = () => {
+      saveSubjects(loadSubjects().filter(x => subjectKey(x) !== subjectKey(s)));
+      renderSubjects();
+    };
+    selEl.appendChild(c);
+  }
+}
+function addKeyword() {
+  const v = $("news-kw").value.trim();
+  if (!v) return;
+  const s = { kind: "search", value: v, label: v };
+  const l = loadSubjects();
+  if (!l.some(x => subjectKey(x) === subjectKey(s))) saveSubjects([...l, s]);
+  $("news-kw").value = "";
+  renderSubjects();
+}
+
 // ---------- Lancement ----------
 $("go").addEventListener("click", async () => {
   const sel = $("interval").value;
@@ -468,18 +716,19 @@ $("go").addEventListener("click", async () => {
   limit = parseInt($("limit").value, 10) || 0;
   const shuffle = $("shuffle").checked;
 
-  setStatus("Récupération des images…");
+  newsMode = ($("source").value === "news");
+  setStatus(newsMode ? "Récupération des actus…" : "Récupération des images…");
   $("go").disabled = true;
   try {
-    images = await getImages();
+    images = newsMode ? await fetchNews() : await getImages();
     if (shuffle) for (let i = images.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
     }
     if (limit > 0 && images.length > limit) images = images.slice(0, limit);
     if (images.length === 0) {
-      setStatus("Aucune image trouvée. Le tableau est-il public ?", "err");
+      setStatus(newsMode ? "Aucune actu trouvée." : "Aucune image trouvée. Le tableau est-il public ?", "err");
     } else {
-      setStatus(images.length + " images chargées.", "ok");
+      setStatus(images.length + (newsMode ? " actus chargées." : " images chargées."), "ok");
       localStorage.setItem("pin_src", $("src").value);
       localStorage.setItem("pin_quality", quality);
       localStorage.setItem("pin_limit", String(limit));
@@ -500,13 +749,16 @@ $("interval").addEventListener("change", () => {
   if (custom) $("customInterval").focus();
 });
 
-// Bascule l'affichage selon la source choisie (Pinterest ↔ photos)
+// Bascule l'affichage selon la source choisie (Pinterest / photos / actu)
 function applySource() {
-  const photos = $("source").value === "photos";
-  $("photos-group").style.display = photos ? "block" : "none";
-  $("src-group").style.display = photos ? "none" : "block";
+  const v = $("source").value;
+  $("src-group").style.display    = v === "pinterest" ? "block" : "none";
+  $("photos-group").style.display = v === "photos"    ? "block" : "none";
+  $("news-group").style.display   = v === "news"      ? "block" : "none";
 }
 $("source").addEventListener("change", applySource);
+$("news-add").addEventListener("click", addKeyword);
+$("news-kw").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } });
 $("files").addEventListener("change", () => {
   const n = ($("files").files || []).length;
   $("filecount").textContent = n ? (n + " photo(s) sélectionnée(s)") : "";
@@ -522,6 +774,7 @@ $("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
 $("source").value = localStorage.getItem("pin_source") || "pinterest";
 applySource();
+renderSubjects();
 
 // Service Worker : cache-first des images (économie de data + hors-ligne)
 if ("serviceWorker" in navigator) {
