@@ -266,16 +266,24 @@ function buildRssUrl(input) {
 }
 
 // Récupère le texte du flux via le premier proxy qui répond.
+// Chaque tentative est limitée dans le temps : un proxy lent est abandonné
+// pour passer au suivant au lieu de bloquer toute la récupération.
 async function fetchFeed(rssUrl) {
   let lastErr;
   for (const make of PROXIES) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const r = await fetch(make(rssUrl), { headers: { "Accept": "application/rss+xml,text/xml,*/*" } });
+      const r = await fetch(make(rssUrl), {
+        headers: { "Accept": "application/rss+xml,text/xml,*/*" },
+        signal: ctrl.signal,
+      });
       if (!r.ok) { lastErr = new Error("HTTP " + r.status); continue; }
       const txt = await r.text();
       if (txt && txt.includes("<item")) return txt;
       lastErr = new Error("Flux vide ou tableau privé/inexistant");
     } catch (e) { lastErr = e; }
+    finally { clearTimeout(to); }
   }
   throw lastErr || new Error("Aucun proxy n'a répondu");
 }
@@ -639,23 +647,26 @@ function parseNewsItems(xmlText, fb) {
 }
 
 // Récupère et fusionne les actus de tous les sujets mémorisés.
+// Tous les flux sont interrogés EN PARALLÈLE (un flux lent ne bloque plus les autres).
 async function fetchNews() {
   const subjects = loadSubjects();
   if (!subjects.length) throw new Error("ajoute au moins un sujet (thème ou mot-clé)");
+  const feeds = subjects.flatMap(feedsForSubject);
+  const results = await Promise.all(feeds.map(f =>
+    fetchFeed(f.url).then(
+      xml => ({ ok: true,  items: parseNewsItems(xml, { name: f.name, domain: f.domain }) }),
+      ()  => ({ ok: false, items: [] })
+    )
+  ));
   const all = [];
   const seen = new Set();
   let okCount = 0;
-  for (const s of subjects) {
-    for (const f of feedsForSubject(s)) {
-      try {
-        const xml = await fetchFeed(f.url);
-        okCount++;
-        for (const it of parseNewsItems(xml, { name: f.name, domain: f.domain })) {
-          const key = it.title.toLowerCase().slice(0, 80);
-          if (seen.has(key)) continue;
-          seen.add(key); all.push(it);
-        }
-      } catch (e) { /* flux ignoré, on continue */ }
+  for (const r of results) {
+    if (r.ok) okCount++;
+    for (const it of r.items) {
+      const key = it.title.toLowerCase().slice(0, 80);
+      if (seen.has(key)) continue;
+      seen.add(key); all.push(it);
     }
   }
   if (!okCount) throw new Error("réseau ou proxy indisponible");
