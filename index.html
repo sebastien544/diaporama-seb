@@ -240,14 +240,26 @@
 <script>
 "use strict";
 
+// Proxy CORS auto-hébergé (Cloudflare Worker). C'est la source la PLUS fiable :
+// renseigne ici l'URL de ton Worker (voir cloudflare-worker.js) et il sera essayé
+// en premier. Laisse "" pour ne compter que sur les proxys publics ci-dessous.
+const SELF_PROXY = "";   // ex. "https://pin-rss.toncompte.workers.dev/?url="
+
 // Proxies CORS essayés dans l'ordre (les flux RSS n'autorisent pas l'accès direct
 // depuis un navigateur). Chacun renvoie parfois un corps vide ou une erreur :
-// d'où le réessai et la cascade vers les suivants dans fetchFeed.
+// d'où le réessai et la cascade vers les suivants dans fetchFeed. Les proxys publics
+// gratuits tombent souvent (tous en même temps parfois) : on en empile plusieurs
+// pour qu'il en reste au moins un debout. Le Worker auto-hébergé (SELF_PROXY) évite
+// complètement cette loterie → c'est la solution recommandée.
 // `json:true` → réponse enveloppée dans un JSON {contents:"…"} (allorigins/get).
 const PROXIES = [
-  { make: u => "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(u), json: false },
-  { make: u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),       json: false },
-  { make: u => "https://api.allorigins.win/get?url=" + encodeURIComponent(u),        json: true  },
+  ...(SELF_PROXY ? [{ make: u => SELF_PROXY + encodeURIComponent(u),                  json: false }] : []),
+  { make: u => "https://api.cors.lol/?url=" + encodeURIComponent(u),                  json: false },
+  { make: u => "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(u),   json: false },
+  { make: u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),         json: false },
+  { make: u => "https://api.allorigins.win/get?url=" + encodeURIComponent(u),         json: true  },
+  { make: u => "https://corsproxy.io/?url=" + encodeURIComponent(u),                  json: false },
+  { make: u => "https://thingproxy.freeboard.io/fetch/" + u,                          json: false },
 ];
 
 // Extrait le contenu utile selon le proxy (allorigins/get l'enveloppe dans du JSON).
