@@ -628,7 +628,7 @@ function exitShow() {
   setupEl.style.display = "flex";
 }
 
-// ---------- Source des images : pins.json (API officielle) sinon flux RSS ----------
+// ---------- Source des images : pins.json (synchro tableau complet) sinon flux RSS ----------
 function normalizeBoard(input) {
   let s = (input || "").trim().toLowerCase();
   s = s.replace(/^https?:\/\//, "").replace(/^www\./, "");
@@ -649,7 +649,7 @@ async function getImages() {
   // Source « Pinterest »
   const inputValue = $("src").value;
   const want = normalizeBoard(inputValue);
-  // 1) Données synchronisées via l'API officielle (pins.json, même origine, TOUTES les épingles)
+  // 1) Données synchronisées (pins.json, même origine, TOUTES les épingles du tableau)
   try {
     const r = await fetch("pins.json?cb=" + Date.now(), { cache: "no-store" });
     if (r.ok) {
@@ -657,7 +657,7 @@ async function getImages() {
       const have = normalizeBoard(data.board || "");
       const urls = (data.images || []).map(i => typeof i === "string" ? i : i && i.url).filter(Boolean);
       if (urls.length && (!want || want === have)) {
-        setStatus(urls.length + " images (synchro officielle).", "ok");
+        setStatus(urls.length + " images (tableau complet synchronisé).", "ok");
         return urls;
       }
     }

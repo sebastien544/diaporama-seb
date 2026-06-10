@@ -1,11 +1,8 @@
 name: Sync Pinterest board
 
 on:
-  # Planification désactivée tant que l'app Pinterest est en validation
-  # (le jeton d'essai renvoie 401, la synchro tournerait pour rien).
-  # Réactiver en décommentant le bloc ci-dessous une fois l'app approuvée.
-  # schedule:
-  #   - cron: "0 */6 * * *"     # toutes les 6 heures
+  schedule:
+    - cron: "0 */6 * * *"       # toutes les 6 heures
   workflow_dispatch: {}         # bouton « Run workflow » manuel
 
 permissions:
@@ -27,12 +24,7 @@ jobs:
 
       - name: Récupérer les épingles → pins.json
         env:
-          # Mode A (maintenant) : jeton d'essai généré à la main, sans client secret.
-          PINTEREST_ACCESS_TOKEN: ${{ secrets.PINTEREST_ACCESS_TOKEN }}
-          # Mode B (après approbation) : rafraîchissement automatique, prioritaire si présent.
-          PINTEREST_CLIENT_ID: ${{ secrets.PINTEREST_CLIENT_ID }}
-          PINTEREST_CLIENT_SECRET: ${{ secrets.PINTEREST_CLIENT_SECRET }}
-          PINTEREST_REFRESH_TOKEN: ${{ secrets.PINTEREST_REFRESH_TOKEN }}
+          # Aucun secret : sync.mjs interroge les endpoints publics internes de Pinterest.
           BOARD_NAME: diaporama
           BOARD_USER: Pseba37
         run: node sync.mjs
