@@ -72,8 +72,10 @@
 
   /* ----- Cartes d'actu ----- */
   .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
-    background:#1c1c1f; pointer-events:none; }
+    background:#1c1c1f; pointer-events:none; display:flex; flex-direction:column; }
   .card.on { opacity:1; pointer-events:auto; }   /* seule la carte visible reçoit les taps */
+  .card-panel { position:relative; flex:1 1 0; min-height:0; overflow:hidden; background:#1c1c1f; }
+  .card-panel + .card-panel { border-top:2px solid rgba(0,0,0,.55); }
   .card-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
     opacity:0; transition:opacity .5s ease; }
   .card-bg.on { opacity:1; }
@@ -87,7 +89,7 @@
   .card-fav { width:1.4em; height:1.4em; border-radius:5px; background:#fff; flex:none; }
   .card-title { font-size:clamp(26px,4vw,44px); line-height:1.22; font-weight:700; color:#fff;
     text-shadow:0 2px 12px rgba(0,0,0,.5);
-    display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
   .card-link { display:inline-block; align-self:flex-start; margin-top:16px; padding:9px 18px; border-radius:999px;
     background:rgba(255,255,255,.16); color:#fff; text-decoration:none; font-weight:600;
     font-size:clamp(13px,1.6vw,16px); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
@@ -211,21 +213,43 @@
   <img id="imgA" referrerpolicy="no-referrer" alt="">
   <img id="imgB" referrerpolicy="no-referrer" alt="">
   <div class="card" id="cardA">
-    <img class="card-bg" referrerpolicy="no-referrer" alt="">
-    <div class="card-scrim"></div>
-    <div class="card-body">
-      <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
-      <div class="card-title"></div>
-      <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
+    <div class="card-panel">
+      <img class="card-bg" referrerpolicy="no-referrer" alt="">
+      <div class="card-scrim"></div>
+      <div class="card-body">
+        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-title"></div>
+        <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
+      </div>
+    </div>
+    <div class="card-panel">
+      <img class="card-bg" referrerpolicy="no-referrer" alt="">
+      <div class="card-scrim"></div>
+      <div class="card-body">
+        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-title"></div>
+        <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
+      </div>
     </div>
   </div>
   <div class="card" id="cardB">
-    <img class="card-bg" referrerpolicy="no-referrer" alt="">
-    <div class="card-scrim"></div>
-    <div class="card-body">
-      <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
-      <div class="card-title"></div>
-      <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
+    <div class="card-panel">
+      <img class="card-bg" referrerpolicy="no-referrer" alt="">
+      <div class="card-scrim"></div>
+      <div class="card-body">
+        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-title"></div>
+        <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
+      </div>
+    </div>
+    <div class="card-panel">
+      <img class="card-bg" referrerpolicy="no-referrer" alt="">
+      <div class="card-scrim"></div>
+      <div class="card-body">
+        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-title"></div>
+        <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
+      </div>
     </div>
   </div>
   <div id="counter" class="hidden"></div>
@@ -431,9 +455,12 @@ function itemUrl(it) { return newsMode ? (it && it.image) : it; }
 function display(i, immediate) {
   idx = (i + images.length) % images.length;
   if (newsMode) displayCard(idx); else displayImage(idx);
-  counter.textContent = (idx + 1) + " / " + images.length;
-  // précharge la suivante (si elle a une image)
-  const nextUrl = itemUrl(images[(idx + 1) % images.length]);
+  counter.textContent = newsMode
+    ? (idx + 1) + "-" + (((idx + 1) % images.length) + 1) + " / " + images.length
+    : (idx + 1) + " / " + images.length;
+  // précharge la suivante (en mode actu, le 1er article de la prochaine paire)
+  const preIdx = newsMode ? idx + 2 : idx + 1;
+  const nextUrl = itemUrl(images[preIdx % images.length]);
   if (nextUrl) { const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = candidates(nextUrl)[0]; }
 }
 
@@ -457,14 +484,17 @@ const GRADIENTS = [
 function displayCard(i) {
   const front = frontIsA ? cardA : cardB;
   const back  = frontIsA ? cardB : cardA;
-  fillCard(back, images[i], i);
+  const panels = back.querySelectorAll(".card-panel");
+  // Deux articles consécutifs, un par panneau (haut puis bas).
+  fillPanel(panels[0], images[i], i);
+  fillPanel(panels[1], images[(i + 1) % images.length], i + 1);
   back.classList.add("on");
   front.classList.remove("on");
   frontIsA = !frontIsA;
 }
-function fillCard(card, it, i) {
-  card.style.background = GRADIENTS[i % GRADIENTS.length];
-  const bg = card.querySelector(".card-bg");
+function fillPanel(panel, it, i) {
+  panel.style.background = GRADIENTS[i % GRADIENTS.length];
+  const bg = panel.querySelector(".card-bg");
   bg.classList.remove("on");
   if (it.image) {
     bg.style.display = "block";
@@ -474,19 +504,20 @@ function fillCard(card, it, i) {
   } else {
     bg.style.display = "none"; bg.removeAttribute("src");
   }
-  const fav = card.querySelector(".card-fav");
+  const fav = panel.querySelector(".card-fav");
   const domain = domainOf(it.srcUrl);
   if (domain) { fav.style.display = "inline-block"; fav.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128"; }
   else { fav.style.display = "none"; }
-  card.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
-  card.querySelector(".card-title").textContent = it.title;
-  const link = card.querySelector(".card-link");
+  panel.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
+  panel.querySelector(".card-title").textContent = it.title;
+  const link = panel.querySelector(".card-link");
   if (it.link) { link.style.display = "inline-block"; link.href = it.link; }
   else { link.style.display = "none"; link.removeAttribute("href"); }
 }
 
-function next() { display(idx + 1); schedule(); }
-function prev() { display(idx - 1); schedule(); }
+// En mode actu, on affiche 2 articles par carte → on avance/recule de 2.
+function next() { display(idx + (newsMode ? 2 : 1)); schedule(); }
+function prev() { display(idx - (newsMode ? 2 : 1)); schedule(); }
 
 function schedule() {
   clearTimeout(timer);
@@ -721,10 +752,19 @@ async function fetchNews() {
       seen.add(key); all.push(it);
     }
   }
+  // Écarte les articles de plus de 30 jours (date invalide = conservée), puis
+  // trie du plus récent au plus ancien (les sans-date passent à la fin).
+  const MAX_AGE = 30 * 86400 * 1000;
+  const now = Date.now();
+  const fresh = all.filter(it => {
+    const t = Date.parse(it.pub || "");
+    return isNaN(t) || (now - t) <= MAX_AGE;
+  });
+  fresh.sort((a, b) => (Date.parse(b.pub || "") || 0) - (Date.parse(a.pub || "") || 0));
   // Diagnostic visible : combien de flux ont répondu, et la dernière erreur.
-  if (!all.length)
+  if (!fresh.length)
     throw new Error(okCount + "/" + feeds.length + " flux OK" + (lastErr ? " — " + lastErr : ""));
-  return all;
+  return fresh;
 }
 
 // ----- Gestion des sujets mémorisés (localStorage) -----
