@@ -665,6 +665,15 @@ const NEWS_FEEDS = {
   "Santé":    [{ url: M20 + "sante.xml",     name: "20 Minutes", domain: "20minutes.fr" }],
   "Sport":    [{ url: M20 + "sport.xml",     name: "20 Minutes", domain: "20minutes.fr" }],
   "Culture":  [{ url: M20 + "culture.xml",   name: "20 Minutes", domain: "20minutes.fr" }],
+  // --- Sources dédiées ---
+  "AlloCiné":        [{ url: "https://www.allocine.fr/rss/news.xml",     name: "AlloCiné",        domain: "allocine.fr" }],
+  "Les Numériques":  [{ url: "https://www.lesnumeriques.com/rss.xml",    name: "Les Numériques",  domain: "lesnumeriques.com" }],
+  "franceinfo":      [{ url: "https://www.francetvinfo.fr/titres.rss",   name: "franceinfo",      domain: "francetvinfo.fr" }],
+  "Journal du Coin": [{ url: "https://journalducoin.com/feed/",          name: "Journal du Coin", domain: "journalducoin.com" }],
+  // Les Échos bloque l'accès direct à ses flux (403) → on passe par Google News
+  // ciblé sur le site (actus à jour, mais texte seul, sans image).
+  "Les Échos":       [{ url: "https://news.google.com/rss/search?q=" + encodeURIComponent("site:lesechos.fr") + "&" + NEWS_CEID,
+                        name: "Les Échos", domain: "lesechos.fr" }],
 };
 const NEWS_PRESETS = Object.keys(NEWS_FEEDS);
 
@@ -695,18 +704,24 @@ function relTime(pub) {
   return "il y a " + Math.floor(s / 86400) + " j";
 }
 
-// Convertit un flux RSS en objets actu. fb = source/domaine de repli (flux éditeur).
+// Convertit un flux RSS 2.0 OU Atom en objets actu. fb = source/domaine de repli.
 function parseNewsItems(xmlText, fb) {
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   const out = [];
-  for (const item of [...doc.querySelectorAll("item")]) {
+  // RSS → <item> ; Atom → <entry> (ex. Les Numériques).
+  let nodes = [...doc.querySelectorAll("item")];
+  const isAtom = nodes.length === 0 && doc.querySelector("entry");
+  if (isAtom) nodes = [...doc.querySelectorAll("entry")];
+  for (const item of nodes) {
     let title = item.querySelector("title")?.textContent?.trim() || "";
     const srcEl = item.querySelector("source");
     const source = srcEl?.textContent?.trim() || fb.name || "";
     const srcUrl = srcEl?.getAttribute("url") || (fb.domain ? "https://" + fb.domain : "");
     // Les titres Google News finissent par « - Nom de la source » : on l'enlève.
     if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
-    const pub = item.querySelector("pubDate")?.textContent || "";
+    // Date : RSS = pubDate ; Atom = published/updated.
+    const pub = (item.querySelector("pubDate") || item.querySelector("published")
+              || item.querySelector("updated"))?.textContent || "";
     // Image (media:content / media:thumbnail / enclosure, sinon <img> dans la description)
     let image = "";
     const media = item.getElementsByTagName("media:content")[0]
@@ -714,11 +729,20 @@ function parseNewsItems(xmlText, fb) {
                || item.querySelector("enclosure");
     if (media) image = media.getAttribute("url") || "";
     if (!image) {
-      const m = (item.querySelector("description")?.textContent || "")
-        .match(/<img[^>]+src=["']([^"']+)["']/i);
+      const html = item.querySelector("description")?.textContent
+                || item.querySelector("summary")?.textContent
+                || item.querySelector("content")?.textContent || "";
+      const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
       if (m) image = m[1];
     }
-    const link = item.querySelector("link")?.textContent?.trim() || "";
+    // Lien : RSS = texte de <link> ; Atom = attribut href.
+    let link = "";
+    if (isAtom) {
+      const le = item.querySelector('link[rel="alternate"]') || item.querySelector("link");
+      link = le?.getAttribute("href") || "";
+    } else {
+      link = item.querySelector("link")?.textContent?.trim() || "";
+    }
     if (title) out.push({ title, source, srcUrl, pub, image, link });
   }
   return out;
