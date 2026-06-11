@@ -84,7 +84,7 @@
      donc toujours visible même si le favicon distant est bloqué (uBlock, Brave…). */
   .card-name { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:86%; text-align:center; font-weight:800; letter-spacing:.5px;
-    font-size:clamp(34px,7vw,72px); line-height:1.05; color:#fff; opacity:.16;
+    font-size:clamp(34px,7vw,72px); line-height:1.05; color:#fff; opacity:.25;
     text-transform:uppercase; word-break:break-word; pointer-events:none; display:none; }
   .card-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
     opacity:0; transition:opacity .5s ease; }
@@ -515,13 +515,19 @@ function displayCard(i) {
 // toujours visible). On tente le favicon par-dessus : s'il charge, il remplace le
 // texte ; s'il échoue (bloqueur de pub/traceurs, 404, pas de domaine), le texte reste.
 function showFallback(logo, name, it, domain) {
+  // Le filigrane TEXTE est la référence garantie : toujours affiché.
   name.textContent = it.source || domain || "Actu";
   name.style.display = "block";
   logo.style.display = "none"; logo.removeAttribute("src");
   logo.onload = logo.onerror = null;
   if (domain) {
-    logo.onload  = () => { logo.style.display = "block"; name.style.display = "none"; };
-    logo.onerror = () => { logo.style.display = "none"; logo.removeAttribute("src"); name.style.display = "block"; };
+    logo.onload  = () => {
+      // Un bloqueur peut renvoyer un pixel vide (onload « réussi » mais 1×1) :
+      // on ne remplace le texte QUE si le favicon a de vraies dimensions.
+      if (logo.naturalWidth > 1) { logo.style.display = "block"; name.style.display = "none"; }
+      else { logo.style.display = "none"; logo.removeAttribute("src"); }
+    };
+    logo.onerror = () => { logo.style.display = "none"; logo.removeAttribute("src"); };
     logo.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=256";
   }
 }
@@ -548,6 +554,7 @@ function fillPanel(panel, it, i) {
   const fav = panel.querySelector(".card-fav");
   if (domain) {
     fav.style.display = "inline-block";
+    fav.onload  = () => { if (fav.naturalWidth <= 1) fav.style.display = "none"; };
     fav.onerror = () => { fav.style.display = "none"; };
     fav.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128";
   } else { fav.style.display = "none"; }
