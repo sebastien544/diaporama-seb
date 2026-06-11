@@ -6,10 +6,19 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Diaporama">
+<meta name="theme-color" content="#111111">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Diaporama Pinterest</title>
 <style>
   :root { --bg:#111; --fg:#f4f4f5; --muted:#a1a1aa; --accent:#e60023; --card:#1c1c1f; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  button, a, select, input, .chip { touch-action: manipulation; }   /* pas de zoom au double-tap */
+  /* Respecte « réduire les animations » du système : pas de fondus. */
+  @media (prefers-reduced-motion: reduce) {
+    #show img, .card, .card-bg, #controls, #counter, #exit { transition: none !important; }
+  }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
   body { overflow:hidden; }
@@ -174,7 +183,7 @@
         <input id="customInterval" type="number" min="0.5" step="0.5" inputmode="decimal"
           placeholder="secondes" style="display:none; margin-top:8px;">
       </div>
-      <div>
+      <div id="fit-group">
         <label for="fit">Cadrage</label>
         <select id="fit">
           <option value="contain" selected>Image entière</option>
@@ -183,15 +192,17 @@
       </div>
     </div>
 
-    <label for="quality">Qualité des images</label>
-    <select id="quality">
-      <option value="originals">Originale (max) — la plus nette</option>
-      <option value="1200x" selected>Élevée — 1200 px (bon compromis)</option>
-      <option value="736x">Standard — 736 px</option>
-      <option value="564x">Éco — 564 px (data réduite)</option>
-    </select>
+    <div id="quality-group">
+      <label for="quality">Qualité des images</label>
+      <select id="quality">
+        <option value="originals">Originale (max) — la plus nette</option>
+        <option value="1200x" selected>Élevée — 1200 px (bon compromis)</option>
+        <option value="736x">Standard — 736 px</option>
+        <option value="564x">Éco — 564 px (data réduite)</option>
+      </select>
+    </div>
 
-    <label for="limit">Images par session</label>
+    <label for="limit" id="limit-label">Images par session</label>
     <select id="limit">
       <option value="10">10</option>
       <option value="25" selected>25</option>
@@ -200,14 +211,14 @@
       <option value="0">Toutes</option>
     </select>
 
-    <label class="chk"><input type="checkbox" id="shuffle" checked> Mélanger l'ordre (aléatoire)</label>
+    <label class="chk" id="shuffle-group"><input type="checkbox" id="shuffle" checked> Mélanger l'ordre (aléatoire)</label>
 
     <button class="go" id="go">▶︎ Lancer le diaporama</button>
     <div id="status"></div>
 
     <div class="hint">
       Astuce iPad : « Partager → Sur l'écran d'accueil » pour un vrai plein écran.<br>
-      Seuls les <b>tableaux publics</b> sont accessibles via RSS. Tableaux secrets → API officielle (étape suivante).
+      Seuls les <b>tableaux publics</b> sont accessibles (les tableaux secrets ne le sont pas).
     </div>
 
     <button type="button" id="clearcache"
@@ -271,12 +282,12 @@
     </div>
   </div>
   <div id="counter" class="hidden"></div>
-  <button id="exit" class="hidden">✕</button>
+  <button id="exit" class="hidden" aria-label="Quitter le diaporama">✕</button>
   <div id="controls" class="hidden">
-    <button class="ctrl" id="prev">⟨</button>
-    <button class="ctrl big" id="play">⏸</button>
-    <button class="ctrl" id="next">⟩</button>
-    <button class="ctrl" id="fs" title="Plein écran">⛶</button>
+    <button class="ctrl" id="prev" aria-label="Précédent">⟨</button>
+    <button class="ctrl big" id="play" aria-label="Lecture / pause">⏸</button>
+    <button class="ctrl" id="next" aria-label="Suivant">⟩</button>
+    <button class="ctrl" id="fs" title="Plein écran" aria-label="Plein écran">⛶</button>
   </div>
 </div>
 
@@ -437,6 +448,9 @@ let limit = 25;
 let frontIsA = true;
 let newsMode = false;
 let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
+let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
+let wakeLock = null;   // empêche la mise en veille de l'écran pendant le diaporama
+let newsRefreshTimer = null;
 
 const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
@@ -447,13 +461,46 @@ const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
 function startShow() {
   setupEl.style.display = "none";
   showEl.style.display = "block";
-  spinner.style.display = "none";
+  spinner.style.display = "flex";   // visible jusqu'à ce que le 1er contenu soit affiché
   // repart d'un état propre (évite qu'une couche d'une session précédente reste visible)
   for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
   frontIsA = true;
   idx = 0; playing = true; playBtn.textContent = "⏸";
+  // En mode « Manuel » (interval 0), lecture/pause n'a pas de sens → on masque le bouton.
+  playBtn.style.display = interval > 0 ? "flex" : "none";
+  requestWakeLock();
   display(0, true);
   schedule();
+  scheduleNewsRefresh();
+}
+
+// Garde l'écran allumé (cadre photo / panneau d'infos). Silencieux si non supporté.
+async function requestWakeLock() {
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); }
+  catch (e) { /* refus (batterie faible, onglet caché…) → on réessaiera au retour */ }
+}
+function releaseWakeLock() {
+  try { wakeLock && wakeLock.release(); } catch (e) {}
+  wakeLock = null;
+}
+// iOS/Android relâchent le verrou quand l'app passe en arrière-plan : on le reprend.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && showEl.style.display === "block" && !wakeLock)
+    requestWakeLock();
+});
+
+// En mode actu, rafraîchit silencieusement le pool toutes les 30 min (sinon le
+// panneau affiche les mêmes articles toute la journée et « il y a 2 h » ment).
+function scheduleNewsRefresh() {
+  clearInterval(newsRefreshTimer);
+  if (!newsMode) return;
+  newsRefreshTimer = setInterval(async () => {
+    try {
+      let fresh = await fetchNews();
+      if (limit > 0 && fresh.length > limit) fresh = fresh.slice(0, limit);
+      if (fresh.length) { images = fresh; idx = idx % images.length; }
+    } catch (e) { /* échec réseau ponctuel → on garde l'ancien pool */ }
+  }, 30 * 60 * 1000);
 }
 
 function loadInto(imgEl, url) {
@@ -492,11 +539,16 @@ function display(i, immediate) {
 }
 
 // Diaporama d'images (Pinterest / photos)
-function displayImage(i) {
+// On attend que la nouvelle image soit chargée AVANT le fondu, sinon la couche
+// arrière (qui contient encore l'image d'il y a deux tours) réapparaît puis saute.
+async function displayImage(i) {
   const front = frontIsA ? imgA : imgB;
   const back  = frontIsA ? imgB : imgA;
+  const token = ++loadToken;
   back.className = fitClass;                 // (pas encore visible)
-  loadInto(back, images[i]);
+  await loadInto(back, images[i]);
+  if (token !== loadToken) return;          // une navigation plus récente a pris le relais
+  spinner.style.display = "none";
   back.classList.add("on");
   front.classList.remove("on");
   frontIsA = !frontIsA;
@@ -515,6 +567,7 @@ function displayCard(i) {
   // Deux articles consécutifs, un par panneau (haut puis bas).
   fillPanel(panels[0], images[i], i);
   fillPanel(panels[1], images[(i + 1) % images.length], i + 1);
+  spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
   back.classList.add("on");
   front.classList.remove("on");
   frontIsA = !frontIsA;
@@ -644,6 +697,8 @@ exitBtn.onclick = exitShow;
 
 // ---------- Plein écran (iPad : pris en charge ; iPhone : non) ----------
 const fsBtn = $("fs");
+// API absente (ex. iPhone) → bouton muet et trompeur : on le retire.
+if (!(showEl.requestFullscreen || showEl.webkitRequestFullscreen)) fsBtn.style.display = "none";
 function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
 function toggleFullscreen() {
   showControls();
@@ -663,6 +718,10 @@ document.addEventListener("webkitfullscreenchange", syncFsIcon);
 
 function exitShow() {
   clearTimeout(timer); clearTimeout(ctrlTimer);
+  clearInterval(newsRefreshTimer);
+  releaseWakeLock();
+  if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+  loadToken++;                       // annule un affichage encore en cours
   showEl.style.display = "none";
   setupEl.style.display = "flex";
 }
@@ -936,10 +995,16 @@ $("go").addEventListener("click", async () => {
   $("go").disabled = true;
   try {
     images = newsMode ? await fetchNews() : await getImages();
-    if (shuffle) for (let i = images.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
+    if (newsMode) {
+      // Actus : déjà triées du plus récent au plus ancien. On garde les N plus
+      // récentes (pas un échantillon aléatoire sur 30 jours), en ordre chronologique.
+      if (limit > 0 && images.length > limit) images = images.slice(0, limit);
+    } else {
+      if (shuffle) for (let i = images.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
+      }
+      if (limit > 0 && images.length > limit) images = images.slice(0, limit);
     }
-    if (limit > 0 && images.length > limit) images = images.slice(0, limit);
     if (images.length === 0) {
       setStatus(newsMode ? "Aucune actu trouvée." : "Aucune image trouvée. Le tableau est-il public ?", "err");
     } else {
@@ -948,6 +1013,10 @@ $("go").addEventListener("click", async () => {
       localStorage.setItem("pin_quality", quality);
       localStorage.setItem("pin_limit", String(limit));
       localStorage.setItem("pin_source", $("source").value);
+      localStorage.setItem("pin_interval", sel);
+      localStorage.setItem("pin_custom", $("customInterval").value);
+      localStorage.setItem("pin_fit", $("fit").value);
+      localStorage.setItem("pin_shuffle", shuffle ? "1" : "0");
       startShow();
     }
   } catch (e) {
@@ -964,12 +1033,19 @@ $("interval").addEventListener("change", () => {
   if (custom) $("customInterval").focus();
 });
 
-// Bascule l'affichage selon la source choisie (Pinterest / photos / actu)
+// Bascule l'affichage selon la source choisie (Pinterest / photos / actu).
+// On masque aussi les réglages sans effet pour la source : qualité = upscale
+// Pinterest uniquement ; cadrage/mélange = images uniquement (en actu, l'ordre est
+// chronologique, cf. #1).
 function applySource() {
-  const v = $("source").value;
+  const v = $("source").value, isNews = v === "news";
   $("src-group").style.display    = v === "pinterest" ? "block" : "none";
   $("photos-group").style.display = v === "photos"    ? "block" : "none";
-  $("news-group").style.display   = v === "news"      ? "block" : "none";
+  $("news-group").style.display   = isNews            ? "block" : "none";
+  $("quality-group").style.display = v === "pinterest" ? "block" : "none";
+  $("fit-group").style.display     = isNews ? "none" : "block";
+  $("shuffle-group").style.display = isNews ? "none" : "flex";
+  $("limit-label").textContent = isNews ? "Actus par session" : "Images par session";
 }
 $("source").addEventListener("change", applySource);
 $("news-add").addEventListener("click", addKeyword);
@@ -988,6 +1064,12 @@ $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Ps
 $("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
 $("source").value = localStorage.getItem("pin_source") || "pinterest";
+$("interval").value = localStorage.getItem("pin_interval") || "5";
+$("customInterval").value = localStorage.getItem("pin_custom") || "";
+$("fit").value = localStorage.getItem("pin_fit") || "contain";
+const savedShuffle = localStorage.getItem("pin_shuffle");
+if (savedShuffle !== null) $("shuffle").checked = savedShuffle === "1";
+$("customInterval").style.display = $("interval").value === "custom" ? "block" : "none";
 applySource();
 renderSubjects();
 

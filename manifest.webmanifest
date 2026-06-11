@@ -1,0 +1,15 @@
+{
+  "name": "Diaporama",
+  "short_name": "Diaporama",
+  "description": "Diaporama plein écran (Pinterest, photos) et panneau d'actu.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icon.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}
