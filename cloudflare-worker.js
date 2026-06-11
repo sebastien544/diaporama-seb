@@ -14,10 +14,19 @@
 //   5. Dans index.html, mets :  const SELF_PROXY = "https://pin-rss.toncompte.workers.dev/?url=";
 //   6. Commit + push → GitHub Pages se met à jour, et le diaporama vise ton proxy en priorité.
 //
-// SÉCURITÉ : ce Worker ne relaie QUE pinterest.com et i.pinimg.com (liste blanche),
-// pour qu'il ne serve pas de proxy ouvert à tout Internet.
+// SÉCURITÉ : ce Worker ne relaie QU'une liste blanche d'hôtes (Pinterest, images
+// pinimg, et les flux RSS du mode actu — voir ALLOWED), pour qu'il ne serve pas
+// de proxy ouvert à tout Internet.
 
-const ALLOWED = [/(^|\.)pinterest\.[a-z.]+$/i, /(^|\.)pinimg\.com$/i];
+// Hôtes relayés : Pinterest (RSS + images) ET les flux du mode actu. Sans les
+// domaines d'actu, ce Worker placé en tête de cascade rejetterait 20minutes,
+// lemonde, news.google… en 403 (un aller-retour perdu par flux).
+const ALLOWED = [
+  /(^|\.)pinterest\.[a-z.]+$/i, /(^|\.)pinimg\.com$/i,
+  /(^|\.)news\.google\.com$/i, /(^|\.)20minutes\.fr$/i, /(^|\.)lemonde\.fr$/i,
+  /(^|\.)allocine\.fr$/i, /(^|\.)lesnumeriques\.com$/i, /(^|\.)francetvinfo\.fr$/i,
+  /(^|\.)journalducoin\.com$/i, /(^|\.)lesechos\.fr$/i,
+];
 
 export default {
   async fetch(request) {

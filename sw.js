@@ -31,7 +31,11 @@ async function cacheFirst(request) {
   const hit = await cache.match(request);
   if (hit) return hit;                         // déjà en cache → aucun téléchargement
   const response = await fetch(request);       // sinon on télécharge une fois
-  cache.put(request, response.clone()).then(() => trim(cache)).catch(() => {});
+  // Ne pas figer une erreur en cache. Les images <img> cross-origin sont "opaque"
+  // (statut invisible) : on les garde quand même, et l'éviction côté page
+  // (evictFromCache, sur onerror d'affichage) répare les rares 404 mis en cache.
+  if (response.ok || response.type === "opaque")
+    cache.put(request, response.clone()).then(() => trim(cache)).catch(() => {});
   return response;
 }
 

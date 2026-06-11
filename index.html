@@ -283,6 +283,9 @@
 <script>
 "use strict";
 
+// Nom du cache d'images (doit rester identique à CACHE dans sw.js).
+const IMG_CACHE = "pins-img-v1";
+
 // Proxy CORS auto-hébergé (Cloudflare Worker). C'est la source la PLUS fiable :
 // renseigne ici l'URL de ton Worker (voir cloudflare-worker.js) et il sera essayé
 // en premier. Laisse "" pour ne compter que sur les proxys publics ci-dessous.
@@ -355,7 +358,11 @@ function buildRssUrl(input) {
 // est bornée dans le temps pour ne pas bloquer la récupération.
 async function fetchFeed(rssUrl) {
   let lastErr;
+  // Budget global : sans ça, 7 proxys × 2 essais × 9 s ≈ 2 min d'attente par flux
+  // avant d'abandonner. On plafonne le total pour ne pas figer l'écran de chargement.
+  const deadline = Date.now() + 30000;
   for (const p of PROXIES) {
+    if (Date.now() > deadline) break;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt) await sleep(500);                 // petit répit avant de réessayer
       const ctrl = new AbortController();
@@ -364,7 +371,8 @@ async function fetchFeed(rssUrl) {
         const r = await fetch(p.make(rssUrl), { signal: ctrl.signal });
         if (!r.ok) { lastErr = new Error("HTTP " + r.status); break; }   // statut KO → proxy suivant
         const body = decodeProxyBody(await r.text(), p.json);
-        if (body && body.includes("<item")) return body;
+        // Accepte RSS (<item>) ET Atom (<entry>, ex. Les Numériques) : parseNewsItems gère les deux.
+        if (body && (body.includes("<item") || body.includes("<entry"))) return body;
         lastErr = new Error("réponse vide");                              // vide → on réessaie
       } catch (e) { lastErr = (e && e.name === "AbortError") ? new Error("délai dépassé") : e; }
       finally { clearTimeout(to); }
@@ -428,6 +436,7 @@ let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
 let newsMode = false;
+let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
 
 const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
@@ -464,7 +473,7 @@ function loadInto(imgEl, url) {
 
 // Retire une image du cache (auto-réparation si une entrée est corrompue/incomplète).
 function evictFromCache(u) {
-  if ("caches" in window) caches.open("pins-img-v1").then(c => c.delete(u)).catch(() => {});
+  if ("caches" in window) caches.open(IMG_CACHE).then(c => c.delete(u)).catch(() => {});
 }
 
 // URL d'image d'un élément (chaîne en mode image, objet actu en mode panneau).
@@ -537,8 +546,9 @@ function fillPanel(panel, it, i) {
   const logo = panel.querySelector(".card-logo");
   const name = panel.querySelector(".card-name");
   const domain = domainOf(it.srcUrl);
+  const image = safeHttpUrl(it.image);
   bg.classList.remove("on");
-  if (it.image) {
+  if (image) {
     // Article avec image : photo en fond, ni logo ni filigrane texte.
     logo.onload = logo.onerror = null;
     logo.style.display = "none"; logo.removeAttribute("src");
@@ -546,7 +556,7 @@ function fillPanel(panel, it, i) {
     bg.style.display = "block";
     bg.onload  = () => bg.classList.add("on");
     bg.onerror = () => { bg.style.display = "none"; showFallback(logo, name, it, domain); };
-    bg.src = it.image;
+    bg.src = image;
   } else {
     bg.style.display = "none"; bg.removeAttribute("src");
     showFallback(logo, name, it, domain);
@@ -561,7 +571,8 @@ function fillPanel(panel, it, i) {
   panel.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
   panel.querySelector(".card-title").textContent = it.title;
   const link = panel.querySelector(".card-link");
-  if (it.link) { link.style.display = "inline-block"; link.href = it.link; }
+  const href = safeHttpUrl(it.link);
+  if (href) { link.style.display = "inline-block"; link.href = href; }
   else { link.style.display = "none"; link.removeAttribute("href"); }
 }
 
@@ -672,7 +683,9 @@ async function getImages() {
     const files = [...($("files").files || [])].filter(f => f.type.startsWith("image/"));
     if (!files.length) throw new Error("choisis au moins une photo");
     setStatus(files.length + " photo(s).", "ok");
-    return files.map(f => URL.createObjectURL(f));
+    objectUrls.forEach(u => URL.revokeObjectURL(u));   // libère la session précédente
+    objectUrls = files.map(f => URL.createObjectURL(f));
+    return objectUrls;
   }
   // Source « Pinterest »
   const inputValue = $("src").value;
@@ -739,6 +752,10 @@ function domainOf(url) {
   const m = (url || "").match(/^https?:\/\/([^\/?#]+)/i);
   return m ? m[1].replace(/^www\./, "") : "";
 }
+// N'accepte qu'une URL http(s). Les actus transitent par des proxys publics tiers
+// (api.cors.lol, codetabs…) qui pourraient injecter un href "javascript:…" exécuté
+// au clic sur « Lire l'article ». On neutralise tout schéma non-http.
+function safeHttpUrl(u) { return /^https?:\/\//i.test(u || "") ? u : ""; }
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, c =>
     ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
@@ -962,7 +979,7 @@ $("files").addEventListener("change", () => {
   $("filecount").textContent = n ? (n + " photo(s) sélectionnée(s)") : "";
 });
 $("clearcache").addEventListener("click", async () => {
-  if ("caches" in window) await caches.delete("pins-img-v1");
+  if ("caches" in window) await caches.delete(IMG_CACHE);
   setStatus("Cache des images vidé.", "ok");
 });
 
