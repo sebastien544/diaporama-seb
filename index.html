@@ -80,6 +80,12 @@
   .card-logo { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:min(55%,200px); max-height:50%; object-fit:contain; opacity:.22;
     border-radius:16px; pointer-events:none; display:none; }
+  /* Repli ultime : nom de la source en filigrane texte. Aucune dépendance réseau,
+     donc toujours visible même si le favicon distant est bloqué (uBlock, Brave…). */
+  .card-name { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:86%; text-align:center; font-weight:800; letter-spacing:.5px;
+    font-size:clamp(34px,7vw,72px); line-height:1.05; color:#fff; opacity:.16;
+    text-transform:uppercase; word-break:break-word; pointer-events:none; display:none; }
   .card-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
     opacity:0; transition:opacity .5s ease; }
   .card-bg.on { opacity:1; }
@@ -220,9 +226,10 @@
     <div class="card-panel">
       <img class="card-bg" referrerpolicy="no-referrer" alt="">
       <div class="card-scrim"></div>
-      <img class="card-logo" alt="">
+      <img class="card-logo" referrerpolicy="no-referrer" alt="">
+      <div class="card-name" aria-hidden="true"></div>
       <div class="card-body">
-        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-meta"><img class="card-fav" referrerpolicy="no-referrer" alt=""><span class="card-src"></span></div>
         <div class="card-title"></div>
         <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
       </div>
@@ -230,9 +237,10 @@
     <div class="card-panel">
       <img class="card-bg" referrerpolicy="no-referrer" alt="">
       <div class="card-scrim"></div>
-      <img class="card-logo" alt="">
+      <img class="card-logo" referrerpolicy="no-referrer" alt="">
+      <div class="card-name" aria-hidden="true"></div>
       <div class="card-body">
-        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-meta"><img class="card-fav" referrerpolicy="no-referrer" alt=""><span class="card-src"></span></div>
         <div class="card-title"></div>
         <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
       </div>
@@ -242,9 +250,10 @@
     <div class="card-panel">
       <img class="card-bg" referrerpolicy="no-referrer" alt="">
       <div class="card-scrim"></div>
-      <img class="card-logo" alt="">
+      <img class="card-logo" referrerpolicy="no-referrer" alt="">
+      <div class="card-name" aria-hidden="true"></div>
       <div class="card-body">
-        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-meta"><img class="card-fav" referrerpolicy="no-referrer" alt=""><span class="card-src"></span></div>
         <div class="card-title"></div>
         <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
       </div>
@@ -252,9 +261,10 @@
     <div class="card-panel">
       <img class="card-bg" referrerpolicy="no-referrer" alt="">
       <div class="card-scrim"></div>
-      <img class="card-logo" alt="">
+      <img class="card-logo" referrerpolicy="no-referrer" alt="">
+      <div class="card-name" aria-hidden="true"></div>
       <div class="card-body">
-        <div class="card-meta"><img class="card-fav" alt=""><span class="card-src"></span></div>
+        <div class="card-meta"><img class="card-fav" referrerpolicy="no-referrer" alt=""><span class="card-src"></span></div>
         <div class="card-title"></div>
         <a class="card-link" target="_blank" rel="noopener">Lire l'article ↗</a>
       </div>
@@ -500,36 +510,47 @@ function displayCard(i) {
   front.classList.remove("on");
   frontIsA = !frontIsA;
 }
-// Affiche le logo de la source (filigrane) ou le cache si pas de domaine.
-function showLogo(logo, domain) {
+// Repli quand l'article n'a pas de photo (ex. Les Échos via Google News).
+// Stratégie : le NOM de la source en filigrane texte s'affiche d'abord (local,
+// toujours visible). On tente le favicon par-dessus : s'il charge, il remplace le
+// texte ; s'il échoue (bloqueur de pub/traceurs, 404, pas de domaine), le texte reste.
+function showFallback(logo, name, it, domain) {
+  name.textContent = it.source || domain || "Actu";
+  name.style.display = "block";
+  logo.style.display = "none"; logo.removeAttribute("src");
+  logo.onload = logo.onerror = null;
   if (domain) {
-    logo.style.display = "block";
+    logo.onload  = () => { logo.style.display = "block"; name.style.display = "none"; };
+    logo.onerror = () => { logo.style.display = "none"; logo.removeAttribute("src"); name.style.display = "block"; };
     logo.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=256";
-  } else {
-    logo.style.display = "none"; logo.removeAttribute("src");
   }
 }
 function fillPanel(panel, it, i) {
   panel.style.background = GRADIENTS[i % GRADIENTS.length];
   const bg = panel.querySelector(".card-bg");
   const logo = panel.querySelector(".card-logo");
+  const name = panel.querySelector(".card-name");
   const domain = domainOf(it.srcUrl);
   bg.classList.remove("on");
   if (it.image) {
-    // Article avec image : photo en fond, pas de logo.
+    // Article avec image : photo en fond, ni logo ni filigrane texte.
+    logo.onload = logo.onerror = null;
     logo.style.display = "none"; logo.removeAttribute("src");
+    name.style.display = "none";
     bg.style.display = "block";
     bg.onload  = () => bg.classList.add("on");
-    bg.onerror = () => { bg.style.display = "none"; showLogo(logo, domain); };
+    bg.onerror = () => { bg.style.display = "none"; showFallback(logo, name, it, domain); };
     bg.src = it.image;
   } else {
-    // Sans image (ex. Les Échos via Google News) : logo de la source en filigrane.
     bg.style.display = "none"; bg.removeAttribute("src");
-    showLogo(logo, domain);
+    showFallback(logo, name, it, domain);
   }
   const fav = panel.querySelector(".card-fav");
-  if (domain) { fav.style.display = "inline-block"; fav.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128"; }
-  else { fav.style.display = "none"; }
+  if (domain) {
+    fav.style.display = "inline-block";
+    fav.onerror = () => { fav.style.display = "none"; };
+    fav.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128";
+  } else { fav.style.display = "none"; }
   panel.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
   panel.querySelector(".card-title").textContent = it.title;
   const link = panel.querySelector(".card-link");
