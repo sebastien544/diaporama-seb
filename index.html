@@ -593,27 +593,49 @@ function showFallback(logo, name, it, domain) {
     logo.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=256";
   }
 }
+// Empreinte stable d'un article (lien/titre) → sert de seed pour que l'image
+// décorative de repli reste IDENTIQUE d'un rafraîchissement à l'autre.
+function seedOf(it) {
+  const key = (it.link || it.title || "").trim();
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (Math.imul(h, 31) + key.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+// Image décorative pour les articles sans visuel propre (Les Échos via Google News,
+// Cryptoast, recherches par mot-clé…). Si le sujet a des mots-clés → LoremFlickr
+// (photo en RAPPORT avec le thème) ; sinon → Picsum (photo neutre aléatoire).
+// Aucun des deux n'est un domaine de traceur → non coupé par les bloqueurs
+// (contrairement à google.com/s2/favicons, d'où l'absence de logo).
+function picsumFor(it) { return "https://picsum.photos/seed/a" + seedOf(it) + "/900/1200"; }
+function fillerFor(it) {
+  return it.topic
+    ? "https://loremflickr.com/900/1200/" + it.topic + "?lock=" + seedOf(it)
+    : picsumFor(it);
+}
 function fillPanel(panel, it, i) {
   panel.style.background = GRADIENTS[i % GRADIENTS.length];
   const bg = panel.querySelector(".card-bg");
   const logo = panel.querySelector(".card-logo");
   const name = panel.querySelector(".card-name");
   const domain = domainOf(it.srcUrl);
-  const image = safeHttpUrl(it.image);
+  const real = safeHttpUrl(it.image);
+  const thematic = fillerFor(it);        // LoremFlickr (thème) ou Picsum si pas de topic
+  const picsum = picsumFor(it);          // repli ultime si LoremFlickr ne répond pas
+  const image = real || thematic;
   bg.classList.remove("on");
-  if (image) {
-    // Article avec image : photo en fond, ni logo ni filigrane texte.
-    logo.onload = logo.onerror = null;
-    logo.style.display = "none"; logo.removeAttribute("src");
-    name.style.display = "none";
-    bg.style.display = "block";
-    bg.onload  = () => bg.classList.add("on");
-    bg.onerror = () => { bg.style.display = "none"; showFallback(logo, name, it, domain); };
-    bg.src = image;
-  } else {
-    bg.style.display = "none"; bg.removeAttribute("src");
-    showFallback(logo, name, it, domain);
-  }
+  // Photo en fond (réelle ou décorative) : ni logo ni filigrane texte.
+  logo.onload = logo.onerror = null;
+  logo.style.display = "none"; logo.removeAttribute("src");
+  name.style.display = "none";
+  bg.style.display = "block";
+  bg.onload  = () => bg.classList.add("on");
+  bg.onerror = () => {
+    // Cascade : image d'éditeur cassée → LoremFlickr → Picsum → logo/filigrane texte.
+    if (real && bg.src !== thematic && bg.src !== picsum) { bg.classList.remove("on"); bg.src = thematic; }
+    else if (bg.src === thematic && thematic !== picsum)  { bg.classList.remove("on"); bg.src = picsum; }
+    else { bg.style.display = "none"; showFallback(logo, name, it, domain); }
+  };
+  bg.src = image;
   const fav = panel.querySelector(".card-fav");
   if (domain) {
     fav.style.display = "inline-block";
@@ -805,12 +827,33 @@ const NEWS_FEEDS = {
 };
 const NEWS_PRESETS = Object.keys(NEWS_FEEDS);
 
+// Mots-clés thématiques (tags Flickr, en anglais) pour l'image décorative de repli
+// des articles sans visuel propre. Servent de seed à LoremFlickr ; un thème absent
+// d'ici (ou un échec réseau) retombe sur une photo Picsum aléatoire.
+const THEME_TOPICS = {
+  "À la une": "news,newspaper",   "France": "france,paris",       "Monde": "world,earth",
+  "Économie": "economy,business", "Tech": "technology,computer",  "Sciences": "science,laboratory",
+  "Santé": "health,medical",      "Sport": "sport,stadium",       "Culture": "culture,art",
+  "AlloCiné": "cinema,movie",     "Les Numériques": "gadget,technology", "Clubic": "computer,hardware",
+  "Numerama": "technology,digital", "Frandroid": "smartphone,android",   "JeuxVideo.com": "videogame,gaming",
+  "franceinfo": "news,newspaper", "Journal du Coin": "cryptocurrency,bitcoin",
+  "Cryptoast": "cryptocurrency,bitcoin", "Les Échos": "business,finance",
+};
+// Texte libre → liste de tags Flickr : minuscules, sans accents, mots séparés par virgule.
+function toTopic(text) {
+  return (text || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, ",").replace(/^,+|,+$/g, "");
+}
+
 // Flux à interroger pour un sujet (thème = éditeurs ; mot-clé = Google News).
+// Chaque flux porte un `topic` (mots-clés) servant à l'image décorative de repli.
 function feedsForSubject(s) {
   if (s.kind === "search")
     return [{ url: "https://news.google.com/rss/search?q=" + encodeURIComponent(s.value) + "&" + NEWS_CEID,
-              name: "", domain: "" }];
-  return NEWS_FEEDS[s.label] || [];
+              name: "", domain: "", topic: toTopic(s.value) }];
+  const topic = THEME_TOPICS[s.label] || "";
+  return (NEWS_FEEDS[s.label] || []).map(f => ({ ...f, topic }));
 }
 
 function domainOf(url) {
@@ -877,7 +920,7 @@ function parseNewsItems(xmlText, fb) {
     } else {
       link = item.querySelector("link")?.textContent?.trim() || "";
     }
-    if (title) out.push({ title, source, srcUrl, pub, image, link });
+    if (title) out.push({ title, source, srcUrl, pub, image, link, topic: fb.topic || "" });
   }
   return out;
 }
@@ -895,7 +938,7 @@ async function fetchNews() {
   const results = await runPool(feeds, async f => {
     try {
       const xml = await fetchFeed(f.url);
-      return parseNewsItems(xml, { name: f.name, domain: f.domain, exclude: f.exclude });
+      return parseNewsItems(xml, { name: f.name, domain: f.domain, exclude: f.exclude, topic: f.topic });
     } catch (e) { lastErr = (e && e.message) || String(e); return null; }
   }, 3);
   const all = [];
