@@ -823,7 +823,10 @@ const NEWS_FEEDS = {
   // Les Échos bloque l'accès direct à ses flux (403) → on passe par Google News
   // ciblé sur le site (actus à jour, mais texte seul, sans image).
   "Les Échos":       [{ url: "https://news.google.com/rss/search?q=" + encodeURIComponent("site:lesechos.fr") + "&" + NEWS_CEID,
-                        name: "Les Échos", domain: "lesechos.fr" }],
+                        name: "Les Échos", domain: "lesechos.fr",
+                        // Écarte les pages de cotation (« Cours Actions … », « Cours Devises … »),
+                        // qui ne sont pas des articles. Ancré au début pour épargner « Cour des comptes ».
+                        exclude: /^Cours\s/i }],
 };
 const NEWS_PRESETS = Object.keys(NEWS_FEEDS);
 
