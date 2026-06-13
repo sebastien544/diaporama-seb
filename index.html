@@ -552,8 +552,15 @@ function evictFromCache(u) {
   if ("caches" in window) caches.open(IMG_CACHE).then(c => c.delete(u)).catch(() => {});
 }
 
-// URL d'image d'un élément (chaîne en mode image, objet actu en mode panneau).
-function itemUrl(it) { return newsMode ? (it && it.image) : it; }
+// Précharge une URL (réchauffe le cache SW pour un affichage instantané ensuite).
+function preloadImg(url) { if (!url) return; const im = new Image(); im.referrerPolicy = "no-referrer"; im.src = url; }
+// Précharge l'image d'un article : la réelle si elle existe, sinon le filler décoratif
+// (LoremFlickr/Picsum) — sans ça, les cartes sans image montraient le dégradé puis un pop.
+function preloadNews(it) {
+  if (!it) return;
+  const real = safeHttpUrl(it.image);
+  preloadImg(real ? candidates(real)[0] : fillerFor(it));
+}
 
 function display(i, immediate) {
   idx = (i + images.length) % images.length;
@@ -561,10 +568,15 @@ function display(i, immediate) {
   counter.textContent = newsMode
     ? (idx + 1) + "-" + (((idx + 1) % images.length) + 1) + " / " + images.length
     : (idx + 1) + " / " + images.length;
-  // précharge la suivante (en mode actu, le 1er article de la prochaine paire)
-  const preIdx = newsMode ? idx + 2 : idx + 1;
-  const nextUrl = itemUrl(images[preIdx % images.length]);
-  if (nextUrl) { const pre = new Image(); pre.referrerPolicy = "no-referrer"; pre.src = candidates(nextUrl)[0]; }
+  // Précharge ce qui vient : en actu, les 2 articles de la prochaine paire (image
+  // réelle OU filler décoratif) ; en mode images, simplement la suivante.
+  if (newsMode) {
+    preloadNews(images[(idx + 2) % images.length]);
+    preloadNews(images[(idx + 3) % images.length]);
+  } else {
+    const u = images[(idx + 1) % images.length];
+    if (u) preloadImg(candidates(u)[0]);
+  }
 }
 
 // Diaporama d'images (Pinterest / photos)

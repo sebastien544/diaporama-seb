@@ -26,6 +26,8 @@ const ALLOWED = [
   /(^|\.)news\.google\.com$/i, /(^|\.)20minutes\.fr$/i, /(^|\.)lemonde\.fr$/i,
   /(^|\.)allocine\.fr$/i, /(^|\.)lesnumeriques\.com$/i, /(^|\.)francetvinfo\.fr$/i,
   /(^|\.)journalducoin\.com$/i, /(^|\.)lesechos\.fr$/i,
+  /(^|\.)clubic\.com$/i, /(^|\.)numerama\.com$/i, /(^|\.)frandroid\.com$/i,
+  /(^|\.)jeuxvideo\.com$/i, /(^|\.)cryptoast\.fr$/i,
 ];
 
 export default {
