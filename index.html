@@ -789,7 +789,7 @@ const NEWS_FEEDS = {
   "Culture":  [{ url: M20 + "culture.xml",   name: "20 Minutes", domain: "20minutes.fr" }],
   // --- Sources dédiées ---
   "AlloCiné":        [{ url: "https://www.allocine.fr/rss/news.xml",     name: "AlloCiné",        domain: "allocine.fr" }],
-  "Les Numériques":  [{ url: "https://www.lesnumeriques.com/rss.xml",    name: "Les Numériques",  domain: "lesnumeriques.com" }],
+  "Les Numériques":  [{ url: "https://www.lesnumeriques.com/rss.xml",    name: "Les Numériques",  domain: "lesnumeriques.com", exclude: /bon plan/i }],
   "Clubic":          [{ url: "https://www.clubic.com/feed/news.rss",     name: "Clubic",          domain: "clubic.com" }],
   "Numerama":        [{ url: "https://www.numerama.com/feed/",           name: "Numerama",        domain: "numerama.com" }],
   "Frandroid":       [{ url: "https://www.frandroid.com/feed",           name: "Frandroid",       domain: "frandroid.com" }],
@@ -846,6 +846,8 @@ function parseNewsItems(xmlText, fb) {
   if (isAtom) nodes = [...doc.querySelectorAll("entry")];
   for (const item of nodes) {
     let title = item.querySelector("title")?.textContent?.trim() || "";
+    // Filtre optionnel par flux (ex. Les Numériques : on écarte les « Bon plan »).
+    if (fb.exclude && fb.exclude.test(title)) continue;
     const srcEl = item.querySelector("source");
     const source = srcEl?.textContent?.trim() || fb.name || "";
     const srcUrl = srcEl?.getAttribute("url") || (fb.domain ? "https://" + fb.domain : "");
@@ -893,7 +895,7 @@ async function fetchNews() {
   const results = await runPool(feeds, async f => {
     try {
       const xml = await fetchFeed(f.url);
-      return parseNewsItems(xml, { name: f.name, domain: f.domain });
+      return parseNewsItems(xml, { name: f.name, domain: f.domain, exclude: f.exclude });
     } catch (e) { lastErr = (e && e.message) || String(e); return null; }
   }, 3);
   const all = [];
