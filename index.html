@@ -35,7 +35,7 @@
   h1 .dot { color:var(--accent); }
   .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.5; }
   label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
-  input[type=text], select { width:100%; padding:13px 14px; font-size:16px; border-radius:12px;
+  input[type=text], input[type=number], select { width:100%; padding:13px 14px; font-size:16px; border-radius:12px;
     border:1px solid #333; background:#0c0c0e; color:var(--fg); }
   input:focus, select:focus { outline:none; border-color:var(--accent); }
   .row { display:flex; gap:12px; }
@@ -165,7 +165,7 @@
       </div>
       <div class="hint">Les <b>thèmes</b> affichent des images (flux des éditeurs).
         Les <b>mots-clés</b> passent par Google&nbsp;News : actus ciblées mais en texte seul.</div>
-      <label>Mes sujets (mémorisés)</label>
+      <label>Mes mots-clés (mémorisés)</label>
       <div id="news-selected" class="chips"></div>
     </div>
 
@@ -1066,14 +1066,16 @@ function renderSubjects() {
     };
     presetsEl.appendChild(b);
   }
-  // Sujets sélectionnés (thèmes + mots-clés), supprimables
+  // On n'affiche ici que les mots-clés : les thèmes sont déjà visibles et
+  // activables ci-dessus (les réafficher ferait doublon).
   const selEl = $("news-selected");
   selEl.innerHTML = "";
-  if (!list.length) {
-    selEl.innerHTML = '<div class="hint">Aucun sujet : choisis des thèmes ci-dessus ou ajoute un mot-clé.</div>';
+  const keywords = list.filter(s => s.kind === "search");
+  if (!keywords.length) {
+    selEl.innerHTML = '<div class="hint">Aucun mot-clé. Choisis des thèmes ci-dessus ou ajoute un mot-clé.</div>';
     return;
   }
-  for (const s of list) {
+  for (const s of keywords) {
     const c = document.createElement("span");
     c.className = "chip on";
     c.innerHTML = (s.kind === "search" ? "🔎 " : "") + escapeHtml(s.label) + ' <span class="x">✕</span>';
