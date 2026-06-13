@@ -790,8 +790,14 @@ const NEWS_FEEDS = {
   // --- Sources dédiées ---
   "AlloCiné":        [{ url: "https://www.allocine.fr/rss/news.xml",     name: "AlloCiné",        domain: "allocine.fr" }],
   "Les Numériques":  [{ url: "https://www.lesnumeriques.com/rss.xml",    name: "Les Numériques",  domain: "lesnumeriques.com" }],
+  "Clubic":          [{ url: "https://www.clubic.com/feed/news.rss",     name: "Clubic",          domain: "clubic.com" }],
+  "Numerama":        [{ url: "https://www.numerama.com/feed/",           name: "Numerama",        domain: "numerama.com" }],
+  "Frandroid":       [{ url: "https://www.frandroid.com/feed",           name: "Frandroid",       domain: "frandroid.com" }],
+  "JeuxVideo.com":   [{ url: "https://www.jeuxvideo.com/rss/rss.xml",    name: "JeuxVideo.com",   domain: "jeuxvideo.com" }],
   "franceinfo":      [{ url: "https://www.francetvinfo.fr/titres.rss",   name: "franceinfo",      domain: "francetvinfo.fr" }],
   "Journal du Coin": [{ url: "https://journalducoin.com/feed/",          name: "Journal du Coin", domain: "journalducoin.com" }],
+  // Cryptoast : flux WordPress sans image → repli sur le filigrane texte.
+  "Cryptoast":       [{ url: "https://cryptoast.fr/feed/",               name: "Cryptoast",       domain: "cryptoast.fr" }],
   // Les Échos bloque l'accès direct à ses flux (403) → on passe par Google News
   // ciblé sur le site (actus à jour, mais texte seul, sans image).
   "Les Échos":       [{ url: "https://news.google.com/rss/search?q=" + encodeURIComponent("site:lesechos.fr") + "&" + NEWS_CEID,
