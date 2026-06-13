@@ -484,11 +484,34 @@ function releaseWakeLock() {
   try { wakeLock && wakeLock.release(); } catch (e) {}
   wakeLock = null;
 }
-// iOS/Android relâchent le verrou quand l'app passe en arrière-plan : on le reprend.
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && showEl.style.display === "block" && !wakeLock)
-    requestWakeLock();
+// iOS/Android relâchent le verrou et figent les timers quand l'app passe en
+// arrière-plan : au retour on reprend le verrou et, après une veille prolongée,
+// on rafraîchit les actus (un cadre laissé une nuit affichait des infos périmées).
+let hiddenAt = 0;                          // instant de passage en arrière-plan
+const WAKE_REFRESH_MS = 5 * 60 * 1000;     // veille mini avant re-fetch au réveil
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
+  if (showEl.style.display !== "block") return;
+  if (!wakeLock) requestWakeLock();
+  if (!newsMode) return;
+  refreshTimes();                          // ancienneté à jour immédiatement
+  const slept = hiddenAt ? Date.now() - hiddenAt : 0;
+  hiddenAt = 0;
+  if (slept > WAKE_REFRESH_MS) {
+    try { if (await refreshNewsPool()) { display(idx, true); schedule(); } }
+    catch (e) { /* échec réseau → on garde l'ancien pool */ }
+  }
 });
+
+// Récupère un pool d'actus frais et remplace le pool courant. Renvoie true si MAJ.
+async function refreshNewsPool() {
+  let fresh = await fetchNews();
+  if (limit > 0 && fresh.length > limit) fresh = fresh.slice(0, limit);
+  if (fresh.length > 1 && fresh.length % 2) fresh.pop();   // total pair (cf. paire/carte)
+  if (!fresh.length) return false;
+  images = fresh; idx = idx % images.length;
+  return true;
+}
 
 // En mode actu, rafraîchit silencieusement le pool toutes les 30 min (sinon le
 // panneau affiche les mêmes articles toute la journée et « il y a 2 h » ment).
@@ -498,13 +521,8 @@ function scheduleNewsRefresh() {
   if (!newsMode) return;
   // Ancienneté à jour chaque minute, même à l'arrêt sur une carte.
   timeTicker = setInterval(refreshTimes, 60 * 1000);
-  newsRefreshTimer = setInterval(async () => {
-    try {
-      let fresh = await fetchNews();
-      if (limit > 0 && fresh.length > limit) fresh = fresh.slice(0, limit);
-      if (fresh.length > 1 && fresh.length % 2) fresh.pop();   // total pair (cf. paire/carte)
-      if (fresh.length) { images = fresh; idx = idx % images.length; }
-    } catch (e) { /* échec réseau ponctuel → on garde l'ancien pool */ }
+  newsRefreshTimer = setInterval(() => {
+    refreshNewsPool().catch(() => { /* échec réseau ponctuel → on garde l'ancien pool */ });
   }, 30 * 60 * 1000);
 }
 
