@@ -345,14 +345,20 @@ function setStatus(msg, kind) {
   statusEl.className = kind || "";
 }
 
+// Réduit une saisie Pinterest (URL ou pseudo) à "user" ou "user/board" : retire
+// le schéma, www., le domaine pinterest.*, la query/ancre, .rss / /feed et les slashes
+// en trop. Insensible à la casse (mais conserve la casse des segments restants).
+function stripPinterestInput(s) {
+  return (s || "")
+    .replace(/^https?:\/\//i, "").replace(/^www\./i, "")
+    .replace(/\?.*$/, "").replace(/#.*$/, "")            // retire query/anchor
+    .replace(/^(.*?\.)?pinterest\.[a-z.]+\//i, "")       // retire le domaine éventuel
+    .replace(/\.rss$/i, "").replace(/\/feed$/i, "").replace(/\/+$/, "").replace(/^\/+/, "");
+}
+
 // Construit l'URL du flux RSS à partir de ce que tape l'utilisateur.
 function buildRssUrl(input) {
-  let s = input.trim();
-  if (!s) return null;
-  s = s.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
-  s = s.replace(/\?.*$/, "").replace(/#.*$/, "");      // retire query/anchor
-  s = s.replace(/^(.*?\.)?pinterest\.[a-z.]+\//i, ""); // retire le domaine éventuel
-  s = s.replace(/\.rss$/i, "").replace(/\/feed$/i, "").replace(/\/+$/,"").replace(/^\/+/,"");
+  const s = stripPinterestInput(input.trim());
   const parts = s.split("/").filter(Boolean);
   if (parts.length === 0) return null;
   if (parts.length === 1) {
@@ -787,13 +793,9 @@ function exitShow() {
 }
 
 // ---------- Source des images : pins.json (synchro tableau complet) sinon flux RSS ----------
+// Même normalisation que buildRssUrl, mais en minuscules (comparaison de tableau).
 function normalizeBoard(input) {
-  let s = (input || "").trim().toLowerCase();
-  s = s.replace(/^https?:\/\//, "").replace(/^www\./, "");
-  s = s.replace(/\?.*$/, "").replace(/#.*$/, "");
-  s = s.replace(/^(.*?\.)?pinterest\.[a-z.]+\//, "");
-  s = s.replace(/\.rss$/, "").replace(/\/feed$/, "").replace(/\/+$/, "").replace(/^\/+/, "");
-  return s;
+  return stripPinterestInput((input || "").trim()).toLowerCase();
 }
 
 async function getImages() {
