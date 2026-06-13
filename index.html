@@ -316,7 +316,6 @@ const PROXIES = [
   { make: u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),         json: false },
   { make: u => "https://api.allorigins.win/get?url=" + encodeURIComponent(u),         json: true  },
   { make: u => "https://corsproxy.io/?url=" + encodeURIComponent(u),                  json: false },
-  { make: u => "https://thingproxy.freeboard.io/fetch/" + u,                          json: false },
 ];
 
 // Extrait le contenu utile selon le proxy (allorigins/get l'enveloppe dans du JSON).
@@ -369,8 +368,8 @@ function buildRssUrl(input) {
 // est bornée dans le temps pour ne pas bloquer la récupération.
 async function fetchFeed(rssUrl) {
   let lastErr;
-  // Budget global : sans ça, 7 proxys × 2 essais × 9 s ≈ 2 min d'attente par flux
-  // avant d'abandonner. On plafonne le total pour ne pas figer l'écran de chargement.
+  // Budget global : sans ça, tous les proxys × 2 essais × 9 s peuvent cumuler ~2 min
+  // d'attente par flux avant d'abandonner. On plafonne le total pour ne pas figer l'écran.
   const deadline = Date.now() + 30000;
   for (const p of PROXIES) {
     if (Date.now() > deadline) break;
@@ -451,6 +450,7 @@ let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sess
 let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
 let wakeLock = null;   // empêche la mise en veille de l'écran pendant le diaporama
 let newsRefreshTimer = null;
+let timeTicker = null;   // rafraîchit l'ancienneté des cartes affichées (mode actu)
 
 const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
@@ -493,11 +493,15 @@ document.addEventListener("visibilitychange", () => {
 // panneau affiche les mêmes articles toute la journée et « il y a 2 h » ment).
 function scheduleNewsRefresh() {
   clearInterval(newsRefreshTimer);
+  clearInterval(timeTicker);
   if (!newsMode) return;
+  // Ancienneté à jour chaque minute, même à l'arrêt sur une carte.
+  timeTicker = setInterval(refreshTimes, 60 * 1000);
   newsRefreshTimer = setInterval(async () => {
     try {
       let fresh = await fetchNews();
       if (limit > 0 && fresh.length > limit) fresh = fresh.slice(0, limit);
+      if (fresh.length > 1 && fresh.length % 2) fresh.pop();   // total pair (cf. paire/carte)
       if (fresh.length) { images = fresh; idx = idx % images.length; }
     } catch (e) { /* échec réseau ponctuel → on garde l'ancien pool */ }
   }, 30 * 60 * 1000);
@@ -612,6 +616,17 @@ function fillerFor(it) {
     ? "https://loremflickr.com/900/1200/" + it.topic + "?lock=" + seedOf(it)
     : picsumFor(it);
 }
+// Ligne « source · il y a X » d'un panneau, recalculée depuis ses données mémorisées.
+function renderMeta(panel) {
+  const el = panel.querySelector(".card-src");
+  if (el) el.textContent = [panel.dataset.src, relTime(panel.dataset.pub)].filter(Boolean).join(" · ");
+}
+// Met à jour l'ancienneté des cartes affichées sans re-rendre (sinon « il y a 2 h »
+// se fige tant que le diaporama ne change pas de slide — visible en pause/manuel).
+function refreshTimes() {
+  document.querySelectorAll(".card.on .card-panel").forEach(renderMeta);
+}
+
 function fillPanel(panel, it, i) {
   panel.style.background = GRADIENTS[i % GRADIENTS.length];
   const bg = panel.querySelector(".card-bg");
@@ -643,7 +658,10 @@ function fillPanel(panel, it, i) {
     fav.onerror = () => { fav.style.display = "none"; };
     fav.src = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128";
   } else { fav.style.display = "none"; }
-  panel.querySelector(".card-src").textContent = [it.source, relTime(it.pub)].filter(Boolean).join(" · ");
+  // pub/source mémorisés sur le panneau pour rafraîchir l'ancienneté sans re-rendre.
+  panel.dataset.pub = it.pub || "";
+  panel.dataset.src = it.source || "";
+  renderMeta(panel);
   panel.querySelector(".card-title").textContent = it.title;
   const link = panel.querySelector(".card-link");
   const href = safeHttpUrl(it.link);
@@ -741,6 +759,7 @@ document.addEventListener("webkitfullscreenchange", syncFsIcon);
 function exitShow() {
   clearTimeout(timer); clearTimeout(ctrlTimer);
   clearInterval(newsRefreshTimer);
+  clearInterval(timeTicker);
   releaseWakeLock();
   if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   loadToken++;                       // annule un affichage encore en cours
@@ -1053,6 +1072,9 @@ $("go").addEventListener("click", async () => {
       // Actus : déjà triées du plus récent au plus ancien. On garde les N plus
       // récentes (pas un échantillon aléatoire sur 7 jours), en ordre chronologique.
       if (limit > 0 && images.length > limit) images = images.slice(0, limit);
+      // 2 articles par carte (on avance de 2) : un total impair appairerait le
+      // dernier article avec le tout premier (doublon) → on retire le surplus.
+      if (images.length > 1 && images.length % 2) images.pop();
     } else {
       if (shuffle) for (let i = images.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1)); [images[i], images[j]] = [images[j], images[i]];
