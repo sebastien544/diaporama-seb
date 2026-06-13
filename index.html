@@ -547,9 +547,12 @@ function loadInto(imgEl, url) {
   });
 }
 
-// Retire une image du cache (auto-réparation si une entrée est corrompue/incomplète).
+// Retire une image des caches (auto-réparation si une entrée est corrompue/incomplète).
+// Cherche dans les deux caches : Pinterest et actu (on ne sait pas lequel la contient).
 function evictFromCache(u) {
-  if ("caches" in window) caches.open(IMG_CACHE).then(c => c.delete(u)).catch(() => {});
+  if (!("caches" in window) || !u) return;
+  for (const name of [IMG_CACHE, NEWS_IMG_CACHE])
+    caches.open(name).then(c => c.delete(u)).catch(() => {});
 }
 
 // Précharge une URL (réchauffe le cache SW pour un affichage instantané ensuite).
@@ -680,14 +683,24 @@ function fillPanel(panel, it, i) {
   logo.style.display = "none"; logo.removeAttribute("src");
   name.style.display = "none";
   bg.style.display = "block";
-  bg.onload  = () => bg.classList.add("on");
+  clearTimeout(panel._fillerTO);
+  bg.onload  = () => { bg.classList.add("on"); clearTimeout(panel._fillerTO); };
   bg.onerror = () => {
     // Cascade : image d'éditeur cassée → LoremFlickr → Picsum → logo/filigrane texte.
+    clearTimeout(panel._fillerTO);
+    evictFromCache(bg.src);   // purge l'entrée cassée des caches (auto-réparation)
     if (real && bg.src !== thematic && bg.src !== picsum) { bg.classList.remove("on"); bg.src = thematic; }
     else if (bg.src === thematic && thematic !== picsum)  { bg.classList.remove("on"); bg.src = picsum; }
     else { bg.style.display = "none"; showFallback(logo, name, it, domain); }
   };
   bg.src = image;
+  // LoremFlickr est parfois lent à répondre (sans pour autant erreur) : si l'image
+  // décorative n'a pas chargé en 4 s, on bascule sur Picsum (rapide et fiable).
+  if (image === thematic && thematic !== picsum) {
+    panel._fillerTO = setTimeout(() => {
+      if (!bg.classList.contains("on") && bg.src === thematic) { bg.src = picsum; }
+    }, 4000);
+  }
   const fav = panel.querySelector(".card-fav");
   if (domain) {
     fav.style.display = "inline-block";

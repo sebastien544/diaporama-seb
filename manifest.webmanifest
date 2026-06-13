@@ -1,4 +1,7 @@
 {
+  "id": ".",
+  "lang": "fr",
+  "dir": "ltr",
   "name": "Diaporama",
   "short_name": "Diaporama",
   "description": "Diaporama plein écran (Pinterest, photos) et panneau d'actu.",
