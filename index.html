@@ -158,7 +158,7 @@
     <select id="source">
       <option value="pinterest" selected>Pinterest</option>
       <option value="photos">Mes photos (iPad)</option>
-      <option value="news">Google Actu (panneau d'infos)</option>
+      <option value="news">Actualités</option>
     </select>
 
     <div id="src-group">
@@ -878,7 +878,7 @@ async function getImages() {
   return extractImages(xml);
 }
 
-// ---------- Source « Google Actu » : flux RSS ----------
+// ---------- Mode « Actualités » : flux RSS ----------
 // Google News ne met AUCUNE image dans son RSS → on tape directement les flux
 // d'éditeurs (qui, eux, fournissent des images). Seule exception : Les Échos,
 // inaccessible en direct (403), passe par Google News → texte seul, sans image.
