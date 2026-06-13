@@ -193,10 +193,8 @@
       <div>
         <label for="interval">Durée par image</label>
         <select id="interval">
-          <option value="3">3 s</option>
-          <option value="5" selected>5 s</option>
-          <option value="8">8 s</option>
-          <option value="12">12 s</option>
+          <option value="30" selected>30 s</option>
+          <option value="60">1 min</option>
           <option value="custom">Personnalisé…</option>
           <option value="0">Manuel</option>
         </select>
@@ -1222,7 +1220,9 @@ $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Ps
 $("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
 $("source").value = localStorage.getItem("pin_source") || "pinterest";
-$("interval").value = localStorage.getItem("pin_interval") || "5";
+$("interval").value = localStorage.getItem("pin_interval") || "30";
+// Ancienne durée mémorisée (3/5/8/12 s) désormais absente du menu → retombe sur 30 s.
+if (!$("interval").value) $("interval").value = "30";
 $("customInterval").value = localStorage.getItem("pin_custom") || "";
 $("fit").value = localStorage.getItem("pin_fit") || "contain";
 const savedShuffle = localStorage.getItem("pin_shuffle");
