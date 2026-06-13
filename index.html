@@ -179,16 +179,7 @@
         <summary id="theme-summary">Choisir des thèmes…</summary>
         <div id="theme-body" class="picker-body"></div>
       </details>
-      <label for="news-kw">Ajouter un mot-clé</label>
-      <div class="addrow">
-        <input id="news-kw" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
-          placeholder="ex. intelligence artificielle, Tours…">
-        <button type="button" id="news-add">Ajouter</button>
-      </div>
-      <div class="hint">Les <b>thèmes</b> affichent des images (flux des éditeurs).
-        Les <b>mots-clés</b> passent par Google&nbsp;News : actus ciblées mais en texte seul.</div>
-      <label>Mes mots-clés (mémorisés)</label>
-      <div id="news-selected" class="chips"></div>
+      <div class="hint">Chaque thème agrège les flux d'éditeurs correspondants (avec images).</div>
     </div>
 
     <div class="row" id="dur-row">
@@ -670,7 +661,7 @@ function seedOf(it) {
   return Math.abs(h);
 }
 // Image décorative pour les articles sans visuel propre (Les Échos via Google News,
-// Cryptoast, recherches par mot-clé…). Si le sujet a des mots-clés → LoremFlickr
+// Cryptoast…). Si le thème a des tags (THEME_TOPICS) → LoremFlickr
 // (photo en RAPPORT avec le thème) ; sinon → Picsum (photo neutre aléatoire).
 // Aucun des deux n'est un domaine de traceur → non coupé par les bloqueurs
 // (contrairement à google.com/s2/favicons, d'où l'absence de logo).
@@ -938,19 +929,10 @@ const THEME_TOPICS = {
   "franceinfo": "news,newspaper", "Journal du Coin": "cryptocurrency,bitcoin",
   "Cryptoast": "cryptocurrency,bitcoin", "Les Échos": "business,finance",
 };
-// Texte libre → liste de tags Flickr : minuscules, sans accents, mots séparés par virgule.
-function toTopic(text) {
-  return (text || "").toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, ",").replace(/^,+|,+$/g, "");
-}
 
-// Flux à interroger pour un sujet (thème = éditeurs ; mot-clé = Google News).
-// Chaque flux porte un `topic` (mots-clés) servant à l'image décorative de repli.
+// Flux d'éditeurs à interroger pour un thème. Chaque flux porte un `topic`
+// (mots-clés) servant à l'image décorative de repli.
 function feedsForSubject(s) {
-  if (s.kind === "search")
-    return [{ url: "https://news.google.com/rss/search?q=" + encodeURIComponent(s.value) + "&" + NEWS_CEID,
-              name: "", domain: "", topic: toTopic(s.value) }];
   const topic = THEME_TOPICS[s.label] || "";
   return (NEWS_FEEDS[s.label] || []).map(f => ({ ...f, topic }));
 }
@@ -963,10 +945,6 @@ function domainOf(url) {
 // (api.cors.lol, codetabs…) qui pourraient injecter un href "javascript:…" exécuté
 // au clic sur « Lire l'article ». On neutralise tout schéma non-http.
 function safeHttpUrl(u) { return /^https?:\/\//i.test(u || "") ? u : ""; }
-function escapeHtml(s) {
-  return (s || "").replace(/[&<>"']/g, c =>
-    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-}
 // Ancienneté lisible à partir d'une date RFC822 (pubDate)
 function relTime(pub) {
   const t = Date.parse(pub || "");
@@ -1029,7 +1007,7 @@ function parseNewsItems(xmlText, fb) {
 // un flux qui échoue (réseau OU parsing) ne peut pas faire tomber les autres.
 async function fetchNews() {
   const subjects = loadSubjects();
-  if (!subjects.length) throw new Error("ajoute au moins un sujet (thème ou mot-clé)");
+  if (!subjects.length) throw new Error("choisis au moins un thème");
   const feeds = subjects.flatMap(feedsForSubject);
   if (!feeds.length) throw new Error("aucun flux disponible pour ces sujets");
   let lastErr = "";
@@ -1071,8 +1049,9 @@ async function fetchNews() {
 function loadSubjects() {
   try {
     const l = JSON.parse(localStorage.getItem("news_subjects") || "[]");
-    // Normalise : pour un thème, la valeur est désormais son libellé (anciennement un id Google).
-    return l.map(s => s.kind === "topic" ? { kind: "topic", value: s.label, label: s.label } : s);
+    // Seuls les thèmes subsistent (les mots-clés ont été retirés) ; on écarte
+    // d'anciens mots-clés stockés et on normalise la valeur sur le libellé.
+    return l.filter(s => s.kind === "topic").map(s => ({ kind: "topic", value: s.label, label: s.label }));
   } catch (e) { return []; }
 }
 function saveSubjects(list) { localStorage.setItem("news_subjects", JSON.stringify(list)); }
@@ -1113,34 +1092,6 @@ function renderSubjects() {
   $("theme-summary").textContent = count
     ? count + (count > 1 ? " thèmes sélectionnés" : " thème sélectionné")
     : "Choisir des thèmes…";
-  // On n'affiche ici que les mots-clés : les thèmes sont déjà visibles et
-  // activables ci-dessus (les réafficher ferait doublon).
-  const selEl = $("news-selected");
-  selEl.innerHTML = "";
-  const keywords = list.filter(s => s.kind === "search");
-  if (!keywords.length) {
-    selEl.innerHTML = '<div class="hint">Aucun mot-clé. Choisis des thèmes ci-dessus ou ajoute un mot-clé.</div>';
-    return;
-  }
-  for (const s of keywords) {
-    const c = document.createElement("span");
-    c.className = "chip on";
-    c.innerHTML = (s.kind === "search" ? "🔎 " : "") + escapeHtml(s.label) + ' <span class="x">✕</span>';
-    c.querySelector(".x").onclick = () => {
-      saveSubjects(loadSubjects().filter(x => subjectKey(x) !== subjectKey(s)));
-      renderSubjects();
-    };
-    selEl.appendChild(c);
-  }
-}
-function addKeyword() {
-  const v = $("news-kw").value.trim();
-  if (!v) return;
-  const s = { kind: "search", value: v, label: v };
-  const l = loadSubjects();
-  if (!l.some(x => subjectKey(x) === subjectKey(s))) saveSubjects([...l, s]);
-  $("news-kw").value = "";
-  renderSubjects();
 }
 
 // ---------- Lancement ----------
@@ -1224,8 +1175,6 @@ function applySource() {
   else $("shuffle-group").before(limitGroup);
 }
 $("source").addEventListener("change", applySource);
-$("news-add").addEventListener("click", addKeyword);
-$("news-kw").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } });
 $("files").addEventListener("change", () => {
   const n = ($("files").files || []).length;
   $("filecount").textContent = n ? (n + " photo(s) sélectionnée(s)") : "";
