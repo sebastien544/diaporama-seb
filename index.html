@@ -879,9 +879,9 @@ async function getImages() {
 }
 
 // ---------- Source « Google Actu » : flux RSS ----------
-// Google News ne met AUCUNE image dans son RSS → pour les thèmes on tape
-// directement les flux d'éditeurs (qui, eux, fournissent des images).
-// Les mots-clés restent sur Google News (recherche libre, mais sans image).
+// Google News ne met AUCUNE image dans son RSS → on tape directement les flux
+// d'éditeurs (qui, eux, fournissent des images). Seule exception : Les Échos,
+// inaccessible en direct (403), passe par Google News → texte seul, sans image.
 const NEWS_CEID = "hl=fr&gl=FR&ceid=FR:fr";
 const M20 = "https://www.20minutes.fr/feeds/rss-";   // flux par rubrique, avec images
 // Libellé de thème → flux d'éditeurs à agréger ({url, name, domain})
