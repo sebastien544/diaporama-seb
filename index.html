@@ -138,11 +138,11 @@
   .picker[open] > summary::after { content:"▴"; }
   .picker[open] > summary { border-bottom:1px solid #333; }
   .picker-body { max-height:46vh; overflow-y:auto; padding:6px 0; }
-  .picker-grp { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;
-    padding:10px 14px 4px; }
   .picker-row { display:flex; align-items:center; gap:10px; padding:9px 14px; margin:0;
     font-size:15px; color:var(--fg); cursor:pointer; }
   .picker-row input { width:auto; accent-color:var(--accent); }
+  .picker-row .lbl { flex:1; }
+  .picker-src { color:var(--muted); font-size:12px; }
   .picker-row:active { background:#161618; }
 </style>
 </head>
@@ -154,7 +154,7 @@
     <h1>Diaporama <span class="dot">Pinterest</span></h1>
     <div class="sub">Affiche des images en diaporama plein écran, depuis Pinterest ou tes propres photos.</div>
 
-    <label for="source">Source</label>
+    <label for="source">Mode</label>
     <select id="source">
       <option value="pinterest" selected>Pinterest</option>
       <option value="photos">Mes photos (iPad)</option>
@@ -174,12 +174,19 @@
     </div>
 
     <div id="news-group" style="display:none;">
-      <label>Mes thèmes</label>
-      <details id="theme-picker" class="picker">
-        <summary id="theme-summary">Choisir des thèmes…</summary>
-        <div id="theme-body" class="picker-body"></div>
+      <label>Sources</label>
+      <details id="source-picker" class="picker">
+        <summary id="source-summary">Choisir des sources…</summary>
+        <div id="source-body" class="picker-body"></div>
       </details>
-      <div class="hint">Chaque thème agrège les flux d'éditeurs correspondants (avec images).</div>
+
+      <label>Rubriques</label>
+      <details id="rubric-picker" class="picker">
+        <summary id="rubric-summary">Choisir des rubriques…</summary>
+        <div id="rubric-body" class="picker-body"></div>
+      </details>
+      <div class="hint">Les <b>sources</b> sont des médias spécialisés ; les <b>rubriques</b>
+        sont les sections d'un généraliste (indiqué à droite de chacune).</div>
     </div>
 
     <div class="row" id="dur-row">
@@ -1057,41 +1064,57 @@ function loadSubjects() {
 function saveSubjects(list) { localStorage.setItem("news_subjects", JSON.stringify(list)); }
 function subjectKey(s) { return s.kind + ":" + s.value; }
 
-function renderSubjects() {
-  const list = loadSubjects();
-  const have = new Set(list.map(subjectKey));
-  // Thèmes prédéfinis : multi-select repliable, regroupé Rubriques / Sources.
-  const body = $("theme-body");
-  body.innerHTML = "";
+// Peuple un menu de thèmes (cases à cocher). `annotate` ajoute à droite de
+// chaque ligne le(s) média(s) qui fournit(ssent) le flux (utile pour les
+// rubriques, sections d'un généraliste). Renvoie le nombre de cases cochées.
+function renderPicker(bodyEl, labels, have, annotate) {
+  bodyEl.innerHTML = "";
   let count = 0;
-  for (const grp of NEWS_GROUPS) {
-    if (!grp.labels.length) continue;
-    const h = document.createElement("div");
-    h.className = "picker-grp";
-    h.textContent = grp.name;
-    body.appendChild(h);
-    for (const label of grp.labels) {
-      const s = { kind: "topic", value: label, label };
-      const on = have.has(subjectKey(s));
-      if (on) count++;
-      const row = document.createElement("label");
-      row.className = "picker-row";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = on;
-      cb.onchange = () => {
-        const l = loadSubjects();
-        const exists = l.some(x => subjectKey(x) === subjectKey(s));
-        saveSubjects(exists ? l.filter(x => subjectKey(x) !== subjectKey(s)) : [...l, s]);
-        renderSubjects();
-      };
-      row.append(cb, document.createTextNode(label));
-      body.appendChild(row);
+  for (const label of labels) {
+    const s = { kind: "topic", value: label, label };
+    const on = have.has(subjectKey(s));
+    if (on) count++;
+    const row = document.createElement("label");
+    row.className = "picker-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = on;
+    cb.onchange = () => {
+      const l = loadSubjects();
+      const exists = l.some(x => subjectKey(x) === subjectKey(s));
+      saveSubjects(exists ? l.filter(x => subjectKey(x) !== subjectKey(s)) : [...l, s]);
+      renderSubjects();
+    };
+    const lbl = document.createElement("span");
+    lbl.className = "lbl";
+    lbl.textContent = label;
+    row.append(cb, lbl);
+    if (annotate) {
+      const src = (NEWS_FEEDS[label] || []).map(f => f.name).filter(Boolean).join(", ");
+      if (src) {
+        const tag = document.createElement("span");
+        tag.className = "picker-src";
+        tag.textContent = src;
+        row.appendChild(tag);
+      }
     }
+    bodyEl.appendChild(row);
   }
-  $("theme-summary").textContent = count
-    ? count + (count > 1 ? " thèmes sélectionnés" : " thème sélectionné")
-    : "Choisir des thèmes…";
+  return count;
+}
+
+function pickerSummary(n, sing, plur, empty) {
+  return n ? n + " " + (n > 1 ? plur : sing) + (n > 1 ? " sélectionnées" : " sélectionnée") : empty;
+}
+
+function renderSubjects() {
+  const have = new Set(loadSubjects().map(subjectKey));
+  const sources   = (NEWS_GROUPS.find(g => g.name === "Sources")   || {}).labels || [];
+  const rubriques = (NEWS_GROUPS.find(g => g.name === "Rubriques") || {}).labels || [];
+  const nSrc = renderPicker($("source-body"), sources,   have, false);
+  const nRub = renderPicker($("rubric-body"), rubriques, have, true);
+  $("source-summary").textContent = pickerSummary(nSrc, "source",   "sources",   "Choisir des sources…");
+  $("rubric-summary").textContent = pickerSummary(nRub, "rubrique", "rubriques", "Choisir des rubriques…");
 }
 
 // ---------- Lancement ----------
