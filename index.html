@@ -151,8 +151,8 @@
 <!-- ====== Configuration ====== -->
 <div id="setup">
   <div class="panel">
-    <h1>Diaporama <span class="dot">Pinterest</span></h1>
-    <div class="sub">Affiche des images en diaporama plein écran, depuis Pinterest ou tes propres photos.</div>
+    <h1>Diaporama <span class="dot" id="title-mode">Pinterest</span></h1>
+    <div class="sub" id="subtitle">Affiche des images en diaporama plein écran, depuis Pinterest.</div>
 
     <label for="source">Mode</label>
     <select id="source">
@@ -1182,8 +1182,18 @@ $("interval").addEventListener("change", () => {
 // On masque aussi les réglages sans effet pour la source : qualité = upscale
 // Pinterest uniquement ; cadrage/mélange = images uniquement (en actu, l'ordre est
 // chronologique, cf. #1).
+// Titre (mot accentué) + sous-titre selon le mode choisi.
+const MODE_HEADER = {
+  pinterest: { title: "Pinterest", sub: "Affiche des images en diaporama plein écran, depuis Pinterest." },
+  photos:    { title: "Photos",    sub: "Affiche tes propres photos en diaporama plein écran." },
+  news:      { title: "Actus",     sub: "Affiche un panneau d'infos qui défile, depuis les flux d'actualité." },
+};
+
 function applySource() {
   const v = $("source").value, isNews = v === "news";
+  const head = MODE_HEADER[v] || MODE_HEADER.pinterest;
+  $("title-mode").textContent = head.title;
+  $("subtitle").textContent = head.sub;
   $("src-group").style.display    = v === "pinterest" ? "block" : "none";
   $("photos-group").style.display = v === "photos"    ? "block" : "none";
   $("news-group").style.display   = isNews            ? "block" : "none";
