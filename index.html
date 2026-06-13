@@ -908,9 +908,9 @@ async function fetchNews() {
       seen.add(key); all.push(it);
     }
   }
-  // Écarte les articles de plus de 30 jours (date invalide = conservée), puis
+  // Écarte les articles de plus de 7 jours (date invalide = conservée), puis
   // trie du plus récent au plus ancien (les sans-date passent à la fin).
-  const MAX_AGE = 30 * 86400 * 1000;
+  const MAX_AGE = 7 * 86400 * 1000;
   const now = Date.now();
   const fresh = all.filter(it => {
     const t = Date.parse(it.pub || "");
@@ -1003,7 +1003,7 @@ $("go").addEventListener("click", async () => {
     images = newsMode ? await fetchNews() : await getImages();
     if (newsMode) {
       // Actus : déjà triées du plus récent au plus ancien. On garde les N plus
-      // récentes (pas un échantillon aléatoire sur 30 jours), en ordre chronologique.
+      // récentes (pas un échantillon aléatoire sur 7 jours), en ordre chronologique.
       if (limit > 0 && images.length > limit) images = images.slice(0, limit);
     } else {
       if (shuffle) for (let i = images.length - 1; i > 0; i--) {
