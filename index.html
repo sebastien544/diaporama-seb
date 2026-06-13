@@ -191,7 +191,7 @@
       <div id="news-selected" class="chips"></div>
     </div>
 
-    <div class="row">
+    <div class="row" id="dur-row">
       <div>
         <label for="interval">Durée par image</label>
         <select id="interval">
@@ -224,14 +224,16 @@
       </select>
     </div>
 
-    <label for="limit" id="limit-label">Images par session</label>
-    <select id="limit">
-      <option value="10">10</option>
-      <option value="25" selected>25</option>
-      <option value="50">50</option>
-      <option value="100">100</option>
-      <option value="0">Toutes</option>
-    </select>
+    <div id="limit-group">
+      <label for="limit" id="limit-label">Images par session</label>
+      <select id="limit">
+        <option value="10">10</option>
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="0">Toutes</option>
+      </select>
+    </div>
 
     <label class="chk" id="shuffle-group"><input type="checkbox" id="shuffle" checked> Mélanger l'ordre (aléatoire)</label>
 
@@ -1215,6 +1217,11 @@ function applySource() {
   $("fit-group").style.display     = isNews ? "none" : "block";
   $("shuffle-group").style.display = isNews ? "none" : "flex";
   $("limit-label").textContent = isNews ? "Actus par session" : "Images par session";
+  // En actus, « Cadrage » est masqué → on remonte le nb d'actus dans la ligne
+  // de durée pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur.
+  const limitGroup = $("limit-group");
+  if (isNews) $("dur-row").appendChild(limitGroup);
+  else $("shuffle-group").before(limitGroup);
 }
 $("source").addEventListener("change", applySource);
 $("news-add").addEventListener("click", addKeyword);
