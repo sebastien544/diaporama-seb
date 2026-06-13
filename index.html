@@ -294,8 +294,9 @@
 <script>
 "use strict";
 
-// Nom du cache d'images (doit rester identique à CACHE dans sw.js).
-const IMG_CACHE = "pins-img-v1";
+// Noms des caches d'images (doivent rester identiques à PINS_CACHE/NEWS_CACHE dans sw.js).
+const IMG_CACHE = "pins-img-v1";        // images Pinterest (évincées une à une via evictFromCache)
+const NEWS_IMG_CACHE = "news-img-v1";   // images d'actu (éditeurs, LoremFlickr, Picsum)
 
 // Proxy CORS auto-hébergé (Cloudflare Worker). C'est la source la PLUS fiable :
 // renseigne ici l'URL de ton Worker (voir cloudflare-worker.js) et il sera essayé
@@ -1131,7 +1132,7 @@ $("files").addEventListener("change", () => {
   $("filecount").textContent = n ? (n + " photo(s) sélectionnée(s)") : "";
 });
 $("clearcache").addEventListener("click", async () => {
-  if ("caches" in window) await caches.delete(IMG_CACHE);
+  if ("caches" in window) await Promise.all([caches.delete(IMG_CACHE), caches.delete(NEWS_IMG_CACHE)]);
   setStatus("Cache des images vidé.", "ok");
 });
 
