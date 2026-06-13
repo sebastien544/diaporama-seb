@@ -1219,9 +1219,11 @@ $("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
 $("source").value = localStorage.getItem("pin_source") || "pinterest";
 $("interval").value = localStorage.getItem("pin_interval") || "30";
-// Ancienne durée mémorisée (3/5/8/12 s) désormais absente du menu → retombe sur 30 s.
-if (!$("interval").value) $("interval").value = "30";
 $("customInterval").value = localStorage.getItem("pin_custom") || "";
+// Repli sur 30 s si la durée mémorisée a disparu du menu (anciens 3/5/8/12 s)
+// ou vaut « Personnalisé » sans valeur saisie.
+if (!$("interval").value || ($("interval").value === "custom" && !$("customInterval").value))
+  $("interval").value = "30";
 $("fit").value = localStorage.getItem("pin_fit") || "contain";
 const savedShuffle = localStorage.getItem("pin_shuffle");
 if (savedShuffle !== null) $("shuffle").checked = savedShuffle === "1";
