@@ -84,11 +84,12 @@
     color:var(--muted); font-size:15px; }
 
   /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
-  /* La carte est une grille 3×3 ; chaque slide tire un gabarit au hasard (cf. MOSAICS)
-     qui répartit 6 tuiles a→f sur les 9 cellules → des tailles variées à chaque tour. */
+  /* Grille 2 colonnes × 4 rangées (pensée portrait : tuiles larges → titres lisibles).
+     Chaque slide tire un gabarit au hasard (cf. MOSAICS) qui répartit 6 tuiles a→f sur
+     les 8 cellules ; certaines occupent 2 cellules → des tailles variées à chaque tour. */
   .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
     background:#000; pointer-events:none;
-    display:grid; gap:3px; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); }
+    display:grid; gap:3px; grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(4,1fr); }
   .card.on { opacity:1; pointer-events:auto; }   /* seule la carte visible reçoit les taps */
   .card-panel { position:relative; min-width:0; min-height:0; overflow:hidden; background:#1c1c1f; }
   .card-panel:nth-child(1){ grid-area:a; }
@@ -590,14 +591,15 @@ const GRADIENTS = [
   "linear-gradient(135deg,#3a1f1f,#1a0c0c)", "linear-gradient(135deg,#1f2b4d,#0c1124)",
 ];
 // 6 articles par carte, en mosaïque. Chaque gabarit place 6 tuiles a→f sur une
-// grille 3×3 (9 cellules) : certaines occupent 2 cellules → des tailles variées.
+// grille 2 colonnes × 4 rangées (8 cellules) : certaines tuiles occupent 2 cellules
+// (en largeur ou en hauteur) → des tailles variées. Conçu pour l'iPad en portrait.
 const NEWS_STRIDE = 6;
 const MOSAICS = [
-  '"a a b" "c d b" "c e f"',
-  '"a a b" "c c b" "d e f"',
-  '"a b b" "a c d" "e e f"',
-  '"a b c" "a b d" "e f d"',
-  '"a b b" "a c c" "d e f"',
+  '"a b" "a c" "d d" "e f"',   // a haute à gauche, d large au milieu
+  '"a b" "c b" "d d" "e f"',   // b haute à droite, d large au milieu
+  '"a a" "b c" "b d" "e f"',   // a large en haut, b haute à gauche
+  '"a b" "a c" "d e" "f f"',   // a haute à gauche, f large en bas
+  '"a a" "b c" "d e" "f f"',   // a et f larges (haut/bas), 4 cases au milieu
 ];
 // Gabarit HTML d'un panneau (généré 6× par carte au démarrage, cf. buildCards).
 const PANEL_HTML =
