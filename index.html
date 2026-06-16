@@ -642,7 +642,7 @@ const pickMosaic = () => MOSAICS[Math.floor(Math.random() * MOSAICS.length)];
 // gabarit + le nouveau contenu, on mesure APRÈS, puis on anime chaque tuile depuis son
 // ancien rectangle vers le nouveau → une case bandeau rétrécit pendant que sa voisine
 // grandit, etc. Le 1er rendu (ou « réduire les animations ») se contente d'un fondu.
-const MORPH_MS = 700;
+const MORPH_MS = 1100;
 function displayCard(i) {
   const card = cardA;
   const panels = [...card.querySelectorAll(".card-panel")];
