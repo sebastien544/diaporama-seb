@@ -18,7 +18,7 @@
   /* Respecte « réduire les animations » du système : pas de fondus. */
   @media (prefers-reduced-motion: reduce) {
     #show img, .card, .card-bg, #controls, #counter, #exit { transition: none !important; }
-    .card.enter .card-panel { animation: none !important; }
+    .card-panel { transition: none !important; }
   }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
@@ -99,20 +99,11 @@
   .card-panel:nth-child(4){ grid-area:d; }
   .card-panel:nth-child(5){ grid-area:e; }
   .card-panel:nth-child(6){ grid-area:f; }
-  /* Animation d'entrée : à chaque nouvelle mosaïque, les tuiles « grandissent » et
-     apparaissent l'une après l'autre (léger décalage) → impression de cases qui se
-     redimensionnent et s'assemblent. transform/opacity uniquement (fluide, GPU). */
-  @keyframes tile-in {
-    from { opacity:0; transform:scale(.84); }
-    to   { opacity:1; transform:scale(1); }
-  }
-  .card.enter .card-panel { animation:tile-in .5s cubic-bezier(.22,.61,.36,1) both; }
-  .card.enter .card-panel:nth-child(1){ animation-delay:0ms; }
-  .card.enter .card-panel:nth-child(2){ animation-delay:55ms; }
-  .card.enter .card-panel:nth-child(3){ animation-delay:110ms; }
-  .card.enter .card-panel:nth-child(4){ animation-delay:165ms; }
-  .card.enter .card-panel:nth-child(5){ animation-delay:220ms; }
-  .card.enter .card-panel:nth-child(6){ animation-delay:275ms; }
+  /* Transition entre mosaïques : chaque tuile se REDIMENSIONNE de son ancien gabarit
+     vers le nouveau (technique FLIP, pilotée en JS dans displayCard). Un bandeau qui
+     devient colonne rétrécit pendant que sa voisine grandit. La transition transform
+     est posée en ligne par le JS ; transform-origin en haut-gauche (cohérent FLIP). */
+  .card-panel { transform-origin:top left; }
   /* Logo de la source, en filigrane centré quand l'article n'a pas d'image. */
   .card-logo { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:min(55%,200px); max-height:50%; object-fit:contain; opacity:.22;
@@ -646,22 +637,48 @@ function buildCards() {
 }
 const pickMosaic = () => MOSAICS[Math.floor(Math.random() * MOSAICS.length)];
 
+// Mode actu : une seule carte (cardA) qui se MORPHE d'une mosaïque à l'autre.
+// FLIP (First-Last-Invert-Play) : on mesure les tuiles AVANT, on applique le nouveau
+// gabarit + le nouveau contenu, on mesure APRÈS, puis on anime chaque tuile depuis son
+// ancien rectangle vers le nouveau → une case bandeau rétrécit pendant que sa voisine
+// grandit, etc. Le 1er rendu (ou « réduire les animations ») se contente d'un fondu.
+const MORPH_MS = 700;
 function displayCard(i) {
-  const front = frontIsA ? cardA : cardB;
-  const back  = frontIsA ? cardB : cardA;
-  const panels = back.querySelectorAll(".card-panel");
-  back.style.gridTemplateAreas = pickMosaic();   // tailles aléatoires à chaque slide
-  // 6 articles consécutifs, un par tuile de la mosaïque.
+  const card = cardA;
+  const panels = [...card.querySelectorAll(".card-panel")];
+  const firstRender = !card.classList.contains("on");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // FLIP — First : rectangles actuels (disposition précédente, transform inclus si une
+  // animation précédente est encore en cours → la nouvelle repart de la position réelle).
+  const firstRects = (!firstRender && !reduce) ? panels.map(p => p.getBoundingClientRect()) : null;
+
+  // Nouvelle disposition + nouveaux articles.
+  card.style.gridTemplateAreas = pickMosaic();
   for (let k = 0; k < NEWS_STRIDE; k++)
     fillPanel(panels[k], images[(i + k) % images.length], i + k);
   spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
-  // Relance l'animation d'entrée des tuiles : on retire la classe puis on force un
-  // reflow avant de la remettre, sinon le navigateur ne rejoue pas l'animation CSS.
-  back.classList.remove("enter");
-  void back.offsetWidth;
-  back.classList.add("enter", "on");
-  front.classList.remove("on");
-  frontIsA = !frontIsA;
+
+  // On remet les tuiles à l'identité pour mesurer la nouvelle disposition « propre ».
+  panels.forEach(p => { p.style.transition = "none"; p.style.transform = ""; });
+  const lastRects = panels.map(p => p.getBoundingClientRect());   // FLIP — Last (force le layout)
+
+  if (!firstRects) { card.classList.add("on"); return; }   // 1er rendu / reduced-motion → fondu
+
+  // FLIP — Invert : chaque tuile repart visuellement de son ancien rectangle…
+  panels.forEach((p, k) => {
+    const a = firstRects[k], b = lastRects[k];
+    const sx = b.width  ? a.width  / b.width  : 1;
+    const sy = b.height ? a.height / b.height : 1;
+    p.style.transform = `translate(${a.left - b.left}px,${a.top - b.top}px) scale(${sx},${sy})`;
+  });
+  void card.offsetWidth;            // committe l'état inversé avant de jouer
+
+  // FLIP — Play : …puis rejoint sa nouvelle taille/position en douceur.
+  panels.forEach(p => {
+    p.style.transition = `transform ${MORPH_MS}ms cubic-bezier(.22,.61,.36,1)`;
+    p.style.transform = "";
+  });
 }
 // Repli quand l'article n'a pas de photo (ex. Les Échos via Google News).
 // Stratégie : le NOM de la source en filigrane texte s'affiche d'abord (local,
