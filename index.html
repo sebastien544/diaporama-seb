@@ -85,25 +85,17 @@
     color:var(--muted); font-size:15px; }
 
   /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
-  /* Grille 2 colonnes × 4 rangées (pensée portrait : tuiles larges → titres lisibles).
-     Chaque slide tire un gabarit au hasard (cf. MOSAICS) qui répartit 6 tuiles a→f sur
-     les 8 cellules ; certaines occupent 2 cellules → des tailles variées à chaque tour. */
+  /* Mosaïque sur grille logique 2 colonnes × 4 rangées (pensée portrait : tuiles larges
+     → titres lisibles). À chaque slide on tire un gabarit (cf. MOSAICS) répartissant 6
+     tuiles a→f sur 8 cellules. La géométrie réelle (left/top/width/height en px) de chaque
+     tuile est CALCULÉE par le JS (mosaicRects) puis animée → vraie transition de taille,
+     sans déformation du contenu. Voir displayCard. */
   .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
-    background:#000; pointer-events:none;
-    display:grid; gap:3px; grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(4,1fr); }
+    background:#000; pointer-events:none; }
   .card.on { opacity:1; pointer-events:auto; }   /* seule la carte visible reçoit les taps */
-  .card-panel { position:relative; min-width:0; min-height:0; overflow:hidden; background:#1c1c1f; }
-  .card-panel:nth-child(1){ grid-area:a; }
-  .card-panel:nth-child(2){ grid-area:b; }
-  .card-panel:nth-child(3){ grid-area:c; }
-  .card-panel:nth-child(4){ grid-area:d; }
-  .card-panel:nth-child(5){ grid-area:e; }
-  .card-panel:nth-child(6){ grid-area:f; }
-  /* Transition entre mosaïques : chaque tuile se REDIMENSIONNE de son ancien gabarit
-     vers le nouveau (technique FLIP, pilotée en JS dans displayCard). Un bandeau qui
-     devient colonne rétrécit pendant que sa voisine grandit. La transition transform
-     est posée en ligne par le JS ; transform-origin en haut-gauche (cohérent FLIP). */
-  .card-panel { transform-origin:top left; }
+  /* Tuiles positionnées en absolu ; left/top/width/height posés (et animés) par le JS. */
+  .card-panel { position:absolute; left:0; top:0; width:0; height:0; box-sizing:border-box;
+    overflow:hidden; background:#1c1c1f; }
   /* Logo de la source, en filigrane centré quand l'article n'a pas d'image. */
   .card-logo { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:min(55%,200px); max-height:50%; object-fit:contain; opacity:.22;
@@ -637,48 +629,67 @@ function buildCards() {
 }
 const pickMosaic = () => MOSAICS[Math.floor(Math.random() * MOSAICS.length)];
 
-// Mode actu : une seule carte (cardA) qui se MORPHE d'une mosaïque à l'autre.
-// FLIP (First-Last-Invert-Play) : on mesure les tuiles AVANT, on applique le nouveau
-// gabarit + le nouveau contenu, on mesure APRÈS, puis on anime chaque tuile depuis son
-// ancien rectangle vers le nouveau → une case bandeau rétrécit pendant que sa voisine
-// grandit, etc. Le 1er rendu (ou « réduire les animations ») se contente d'un fondu.
 const MORPH_MS = 1100;
+const MORPH_EASE = "cubic-bezier(.22,.61,.36,1)";
+const CARD_GAP = 3;   // gouttière entre tuiles (px), reproduite dans le calcul de géométrie
+
+// Calcule la géométrie RÉELLE (left/top/width/height en px) de chaque tuile pour un
+// gabarit donné, sur une zone WxH. C'est « le calcul sur une copie » : on déduit les
+// rectangles depuis la chaîne du gabarit (ex. '"a b" "a c" "d d" "e f"'), sans toucher
+// au rendu en cours, puis on applique/anime ces valeurs sur les vraies tuiles.
+function mosaicRects(mosaic, W, H, gap) {
+  const rows = mosaic.match(/"([^"]+)"/g).map(s => s.replace(/"/g, "").trim().split(/\s+/));
+  const R = rows.length, C = rows[0].length;
+  const cw = (W - gap * (C - 1)) / C;   // largeur d'une colonne
+  const rh = (H - gap * (R - 1)) / R;   // hauteur d'une rangée
+  const box = {};                        // lettre → étendue de cellules (rectangulaire)
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    const L = rows[r][c];
+    const o = box[L] || (box[L] = { r0: r, r1: r, c0: c, c1: c });
+    o.r0 = Math.min(o.r0, r); o.r1 = Math.max(o.r1, r);
+    o.c0 = Math.min(o.c0, c); o.c1 = Math.max(o.c1, c);
+  }
+  const rects = [];
+  for (let k = 0; k < NEWS_STRIDE; k++) {
+    const o = box[String.fromCharCode(97 + k)];   // tuile k ↔ lettre a,b,c…
+    rects.push({
+      left:   o.c0 * (cw + gap),
+      top:    o.r0 * (rh + gap),
+      width:  (o.c1 - o.c0 + 1) * cw + (o.c1 - o.c0) * gap,
+      height: (o.r1 - o.r0 + 1) * rh + (o.r1 - o.r0) * gap,
+    });
+  }
+  return rects;
+}
+
+// Mode actu : une seule carte (cardA) dont les tuiles se REDIMENSIONNENT d'une mosaïque
+// à l'autre. On calcule la géométrie cible du nouveau gabarit (mosaicRects) puis on
+// anime left/top/width/height vers ces valeurs → vrai redimensionnement, contenu net,
+// transition interruptible (repart de la taille courante). 1er rendu / « réduire les
+// animations » → application instantanée (pas d'animation).
 function displayCard(i) {
   const card = cardA;
   const panels = [...card.querySelectorAll(".card-panel")];
   const firstRender = !card.classList.contains("on");
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const animate = !firstRender && !reduce;
 
-  // FLIP — First : rectangles actuels (disposition précédente, transform inclus si une
-  // animation précédente est encore en cours → la nouvelle repart de la position réelle).
-  const firstRects = (!firstRender && !reduce) ? panels.map(p => p.getBoundingClientRect()) : null;
-
-  // Nouvelle disposition + nouveaux articles.
-  card.style.gridTemplateAreas = pickMosaic();
   for (let k = 0; k < NEWS_STRIDE; k++)
     fillPanel(panels[k], images[(i + k) % images.length], i + k);
-  spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
 
-  // On remet les tuiles à l'identité pour mesurer la nouvelle disposition « propre ».
-  panels.forEach(p => { p.style.transition = "none"; p.style.transform = ""; });
-  const lastRects = panels.map(p => p.getBoundingClientRect());   // FLIP — Last (force le layout)
-
-  if (!firstRects) { card.classList.add("on"); return; }   // 1er rendu / reduced-motion → fondu
-
-  // FLIP — Invert : chaque tuile repart visuellement de son ancien rectangle…
+  const rects = mosaicRects(pickMosaic(), card.clientWidth, card.clientHeight, CARD_GAP);
+  const trans = animate
+    ? ["left", "top", "width", "height"].map(p => `${p} ${MORPH_MS}ms ${MORPH_EASE}`).join(",")
+    : "none";
   panels.forEach((p, k) => {
-    const a = firstRects[k], b = lastRects[k];
-    const sx = b.width  ? a.width  / b.width  : 1;
-    const sy = b.height ? a.height / b.height : 1;
-    p.style.transform = `translate(${a.left - b.left}px,${a.top - b.top}px) scale(${sx},${sy})`;
+    const r = rects[k];
+    p.style.transition = trans;
+    p.style.left = r.left + "px"; p.style.top = r.top + "px";
+    p.style.width = r.width + "px"; p.style.height = r.height + "px";
   });
-  void card.offsetWidth;            // committe l'état inversé avant de jouer
 
-  // FLIP — Play : …puis rejoint sa nouvelle taille/position en douceur.
-  panels.forEach(p => {
-    p.style.transition = `transform ${MORPH_MS}ms cubic-bezier(.22,.61,.36,1)`;
-    p.style.transform = "";
-  });
+  spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
+  card.classList.add("on");
 }
 // Repli quand l'article n'a pas de photo (ex. Les Échos via Google News).
 // Stratégie : le NOM de la source en filigrane texte s'affiche d'abord (local,
