@@ -83,9 +83,9 @@
   .spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:15px; }
 
-  /* ----- Cartes d'actu (mosaïque de 5 articles, tailles aléatoires) ----- */
+  /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
   /* La carte est une grille 3×3 ; chaque slide tire un gabarit au hasard (cf. MOSAICS)
-     qui répartit 5 tuiles a→e sur les 9 cellules → des tailles variées à chaque tour. */
+     qui répartit 6 tuiles a→f sur les 9 cellules → des tailles variées à chaque tour. */
   .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
     background:#000; pointer-events:none;
     display:grid; gap:3px; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); }
@@ -96,6 +96,7 @@
   .card-panel:nth-child(3){ grid-area:c; }
   .card-panel:nth-child(4){ grid-area:d; }
   .card-panel:nth-child(5){ grid-area:e; }
+  .card-panel:nth-child(6){ grid-area:f; }
   /* Logo de la source, en filigrane centré quand l'article n'a pas d'image. */
   .card-logo { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:min(55%,200px); max-height:50%; object-fit:contain; opacity:.22;
@@ -104,7 +105,7 @@
      donc toujours visible même si le favicon distant est bloqué (uBlock, Brave…). */
   .card-name { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:86%; text-align:center; font-weight:800; letter-spacing:.5px;
-    font-size:clamp(15px,2.6vw,34px); line-height:1.05; color:#fff; opacity:.25;
+    font-size:clamp(18px,3vw,42px); line-height:1.05; color:#fff; opacity:.25;
     text-transform:uppercase; word-break:break-word; pointer-events:none; display:none; }
   .card-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
     opacity:0; transition:opacity .5s ease; }
@@ -115,15 +116,15 @@
     display:flex; flex-direction:column; justify-content:flex-end;
     padding:clamp(10px,1.6vw,20px) clamp(12px,1.8vw,22px)
             calc(clamp(10px,1.6vw,20px) + env(safe-area-inset-bottom)); }
-  .card-meta { display:flex; align-items:center; gap:7px; margin-bottom:6px;
-    font-size:clamp(10px,1.2vw,14px); color:#e7e7ea; font-weight:600; }
+  .card-meta { display:flex; align-items:center; gap:8px; margin-bottom:8px;
+    font-size:clamp(13px,1.5vw,18px); color:#e7e7ea; font-weight:600; }
   .card-fav { width:1.4em; height:1.4em; border-radius:5px; background:#fff; flex:none; }
-  .card-title { font-size:clamp(14px,1.7vw,24px); line-height:1.2; font-weight:700; color:#fff;
+  .card-title { font-size:clamp(18px,2.4vw,34px); line-height:1.2; font-weight:700; color:#fff;
     text-shadow:0 2px 12px rgba(0,0,0,.5);
     display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
-  .card-link { display:inline-block; align-self:flex-start; margin-top:9px; padding:6px 13px; border-radius:999px;
+  .card-link { display:inline-block; align-self:flex-start; margin-top:11px; padding:8px 16px; border-radius:999px;
     background:rgba(255,255,255,.16); color:#fff; text-decoration:none; font-weight:600;
-    font-size:clamp(11px,1.3vw,14px); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+    font-size:clamp(13px,1.5vw,17px); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
   .card-link:active { background:rgba(255,255,255,.32); }
 
   /* ----- Chips (sujets actu) ----- */
@@ -448,7 +449,7 @@ const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
 function startShow() {
   setupEl.style.display = "none";
   showEl.style.display = "block";
-  if (newsMode) buildCards();       // (re)génère les 5 tuiles de chaque carte
+  if (newsMode) buildCards();       // (re)génère les 6 tuiles de chaque carte
   spinner.style.display = "flex";   // visible jusqu'à ce que le 1er contenu soit affiché
   // repart d'un état propre (évite qu'une couche d'une session précédente reste visible)
   for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
@@ -494,7 +495,7 @@ document.addEventListener("visibilitychange", async () => {
 async function refreshNewsPool() {
   let fresh = await fetchNews();
   if (limit > 0 && fresh.length > limit) fresh = fresh.slice(0, limit);
-  // Total multiple de 5 (5 articles/carte) : sinon la dernière mosaïque reprendrait
+  // Total multiple de 6 (6 articles/carte) : sinon la dernière mosaïque reprendrait
   // les premiers articles (doublons). On ne tronque que si on a au moins une carte pleine.
   if (fresh.length > NEWS_STRIDE) fresh = fresh.slice(0, fresh.length - (fresh.length % NEWS_STRIDE));
   if (!fresh.length) return false;
@@ -554,7 +555,7 @@ function display(i, immediate) {
   counter.textContent = newsMode
     ? (idx + 1) + "-" + (((idx + NEWS_STRIDE - 1) % images.length) + 1) + " / " + images.length
     : (idx + 1) + " / " + images.length;
-  // Précharge ce qui vient : en actu, les 5 articles de la prochaine mosaïque
+  // Précharge ce qui vient : en actu, les 6 articles de la prochaine mosaïque
   // (image réelle OU filler décoratif) ; en mode images, simplement la suivante.
   if (newsMode) {
     for (let k = 0; k < NEWS_STRIDE; k++)
@@ -587,17 +588,17 @@ const GRADIENTS = [
   "linear-gradient(135deg,#1f4037,#0c1f1a)", "linear-gradient(135deg,#4d3319,#241608)",
   "linear-gradient(135deg,#3a1f1f,#1a0c0c)", "linear-gradient(135deg,#1f2b4d,#0c1124)",
 ];
-// 5 articles par carte, en mosaïque. Chaque gabarit place 5 tuiles a→e sur une
-// grille 3×3 (9 cellules) : certaines occupent 2 ou 3 cellules → tailles variées.
-const NEWS_STRIDE = 5;
+// 6 articles par carte, en mosaïque. Chaque gabarit place 6 tuiles a→f sur une
+// grille 3×3 (9 cellules) : certaines occupent 2 cellules → des tailles variées.
+const NEWS_STRIDE = 6;
 const MOSAICS = [
-  '"a a b" "c d b" "c d e"',
-  '"a b b" "a c d" "e c d"',
-  '"a a b" "c c b" "d d e"',
-  '"a a a" "b c d" "b c e"',
-  '"a b c" "a b d" "a e d"',
+  '"a a b" "c d b" "c e f"',
+  '"a a b" "c c b" "d e f"',
+  '"a b b" "a c d" "e e f"',
+  '"a b c" "a b d" "e f d"',
+  '"a b b" "a c c" "d e f"',
 ];
-// Gabarit HTML d'un panneau (généré 5× par carte au démarrage, cf. buildCards).
+// Gabarit HTML d'un panneau (généré 6× par carte au démarrage, cf. buildCards).
 const PANEL_HTML =
   '<img class="card-bg" referrerpolicy="no-referrer" alt="">' +
   '<div class="card-scrim"></div>' +
@@ -629,7 +630,7 @@ function displayCard(i) {
   const back  = frontIsA ? cardB : cardA;
   const panels = back.querySelectorAll(".card-panel");
   back.style.gridTemplateAreas = pickMosaic();   // tailles aléatoires à chaque slide
-  // 5 articles consécutifs, un par tuile de la mosaïque.
+  // 6 articles consécutifs, un par tuile de la mosaïque.
   for (let k = 0; k < NEWS_STRIDE; k++)
     fillPanel(panels[k], images[(i + k) % images.length], i + k);
   spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
@@ -740,7 +741,7 @@ function fillPanel(panel, it, i) {
   else { link.style.display = "none"; link.removeAttribute("href"); }
 }
 
-// En mode actu, on affiche 5 articles par carte → on avance/recule de 5.
+// En mode actu, on affiche 6 articles par carte → on avance/recule de 6.
 function next() { display(idx + (newsMode ? NEWS_STRIDE : 1)); schedule(); }
 function prev() { display(idx - (newsMode ? NEWS_STRIDE : 1)); schedule(); }
 
@@ -1140,7 +1141,7 @@ $("go").addEventListener("click", async () => {
       // Actus : déjà triées du plus récent au plus ancien. On garde les N plus
       // récentes (pas un échantillon aléatoire sur 7 jours), en ordre chronologique.
       if (limit > 0 && images.length > limit) images = images.slice(0, limit);
-      // 5 articles par carte (on avance de 5) : un total non multiple de 5 ferait
+      // 6 articles par carte (on avance de 6) : un total non multiple de 6 ferait
       // reprendre les premiers articles sur la dernière mosaïque (doublons) → on
       // retire le surplus, mais seulement si on a au moins une carte pleine.
       if (images.length > NEWS_STRIDE) images = images.slice(0, images.length - (images.length % NEWS_STRIDE));
