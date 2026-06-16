@@ -195,6 +195,8 @@
         <summary id="rubric-summary">Choisir des rubriques…</summary>
         <div id="rubric-body" class="picker-body"></div>
       </details>
+
+      <label class="chk"><input type="checkbox" id="hidePromos" checked> Masquer les promos / bons plans</label>
     </div>
 
     <div class="row" id="dur-row">
@@ -436,6 +438,7 @@ let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
 let newsMode = false;
+let hidePromos = true;   // mode actu : écarte les articles promo / bons plans
 let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
 let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
 let wakeLock = null;   // empêche la mise en veille de l'écran pendant le diaporama
@@ -966,6 +969,11 @@ function relTime(pub) {
   return "il y a " + Math.floor(s / 86400) + " j";
 }
 
+// Marqueurs commerciaux des titres « promo / bon plan » (haute précision : on évite
+// les mots ambigus comme « promotion » (sport) ou « réduction » (impôts, peine)).
+// Couvre aussi les remises chiffrées du type « -50 % ».
+const PROMO_RE = /\b(bons?\s+plans?|codes?\s+promos?|promos?|soldes?|french\s+days?|black\s+friday|cyber\s+monday|prime\s+day|ventes?\s+flash|d[ée]stockage|prix\s+cass[ée]s?|petits?\s+prix|meilleurs?\s+prix|offres?\s+sp[ée]ciales?|deals?|sponsoris[ée]e?s?|publi[-\s]?r[ée]dactionnel|contenu\s+partenaire)\b|[-–]\s?\d{1,3}\s?%/i;
+
 // Convertit un flux RSS 2.0 OU Atom en objets actu. fb = source/domaine de repli.
 function parseNewsItems(xmlText, fb) {
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
@@ -1035,6 +1043,7 @@ async function fetchNews() {
     if (!items) continue;
     okCount++;
     for (const it of items) {
+      if (hidePromos && PROMO_RE.test(it.title)) continue;   // écarte les promos / bons plans
       const key = it.title.toLowerCase().slice(0, 80);
       if (seen.has(key)) continue;
       seen.add(key); all.push(it);
@@ -1134,6 +1143,7 @@ $("go").addEventListener("click", async () => {
   quality = $("quality").value;
   limit = parseInt($("limit").value, 10) || 0;
   const shuffle = $("shuffle").checked;
+  hidePromos = $("hidePromos").checked;   // lu avant fetchNews (qui s'en sert)
 
   newsMode = ($("source").value === "news");
   setStatus(newsMode ? "Récupération des actus…" : "Récupération des images…");
@@ -1166,6 +1176,7 @@ $("go").addEventListener("click", async () => {
       localStorage.setItem("pin_custom", $("customInterval").value);
       localStorage.setItem("pin_fit", $("fit").value);
       localStorage.setItem("pin_shuffle", shuffle ? "1" : "0");
+      localStorage.setItem("news_hide_promos", hidePromos ? "1" : "0");
       startShow();
     }
   } catch (e) {
@@ -1235,6 +1246,8 @@ if (!$("interval").value || ($("interval").value === "custom" && !$("customInter
 $("fit").value = localStorage.getItem("pin_fit") || "contain";
 const savedShuffle = localStorage.getItem("pin_shuffle");
 if (savedShuffle !== null) $("shuffle").checked = savedShuffle === "1";
+const savedHidePromos = localStorage.getItem("news_hide_promos");
+if (savedHidePromos !== null) $("hidePromos").checked = savedHidePromos === "1";
 $("customInterval").style.display = $("interval").value === "custom" ? "block" : "none";
 applySource();
 renderSubjects();
