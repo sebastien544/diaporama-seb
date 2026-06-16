@@ -682,7 +682,9 @@ function cellLayout(mosaic, W, H, gap) {
 // géométrie cible — les grandes tuiles absorbent leur voisine (qui va à 0), donc rien ne
 // se déplace : seuls les bords partagés glissent et les cases grandissent/rétrécissent.
 // Les 6 articles vont aux cellules primaires (ordre de lecture) ; les cases absorbées
-// gardent leur contenu et rétrécissent vers zéro. 1er rendu / reduced-motion → instantané.
+// rétrécissent vers zéro EN DISPARAISSANT en fondu (sinon on verrait leur texte se
+// comprimer), et celles qui réapparaissent montent en fondu. 1er rendu / reduced-motion
+// → instantané.
 function displayCard(i) {
   const card = cardA;
   const panels = [...card.querySelectorAll(".card-panel")];
@@ -698,14 +700,17 @@ function displayCard(i) {
     if (cell.primary) { fillPanel(panels[k], images[(i + a) % images.length], i + a); a++; }
   });
 
-  const trans = animate
-    ? ["left", "top", "width", "height"].map(p => `${p} ${MORPH_MS}ms ${MORPH_EASE}`).join(",")
-    : "none";
+  const geom = ["left", "top", "width", "height"].map(p => `${p} ${MORPH_MS}ms ${MORPH_EASE}`);
   panels.forEach((p, k) => {
-    const r = cells[k].rect;
-    p.style.transition = trans;
+    const cell = cells[k], r = cell.rect;
+    // Opacité : une case qui s'efface (→ 0) disparaît VITE (moitié de la durée) pour
+    // qu'on ne voie pas son texte se comprimer ; une case qui apparaît monte en douceur
+    // sur toute la durée pendant qu'elle grandit.
+    const opDur = cell.primary ? MORPH_MS : Math.round(MORPH_MS * 0.5);
+    p.style.transition = animate ? [...geom, `opacity ${opDur}ms ease`].join(",") : "none";
     p.style.left = r.left + "px"; p.style.top = r.top + "px";
     p.style.width = r.width + "px"; p.style.height = r.height + "px";
+    p.style.opacity = cell.primary ? "1" : "0";
   });
 
   spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
