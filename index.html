@@ -18,6 +18,7 @@
   /* Respecte « réduire les animations » du système : pas de fondus. */
   @media (prefers-reduced-motion: reduce) {
     #show img, .card, .card-bg, #controls, #counter, #exit { transition: none !important; }
+    .card.enter .card-panel { animation: none !important; }
   }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
@@ -98,6 +99,20 @@
   .card-panel:nth-child(4){ grid-area:d; }
   .card-panel:nth-child(5){ grid-area:e; }
   .card-panel:nth-child(6){ grid-area:f; }
+  /* Animation d'entrée : à chaque nouvelle mosaïque, les tuiles « grandissent » et
+     apparaissent l'une après l'autre (léger décalage) → impression de cases qui se
+     redimensionnent et s'assemblent. transform/opacity uniquement (fluide, GPU). */
+  @keyframes tile-in {
+    from { opacity:0; transform:scale(.84); }
+    to   { opacity:1; transform:scale(1); }
+  }
+  .card.enter .card-panel { animation:tile-in .5s cubic-bezier(.22,.61,.36,1) both; }
+  .card.enter .card-panel:nth-child(1){ animation-delay:0ms; }
+  .card.enter .card-panel:nth-child(2){ animation-delay:55ms; }
+  .card.enter .card-panel:nth-child(3){ animation-delay:110ms; }
+  .card.enter .card-panel:nth-child(4){ animation-delay:165ms; }
+  .card.enter .card-panel:nth-child(5){ animation-delay:220ms; }
+  .card.enter .card-panel:nth-child(6){ animation-delay:275ms; }
   /* Logo de la source, en filigrane centré quand l'article n'a pas d'image. */
   .card-logo { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:min(55%,200px); max-height:50%; object-fit:contain; opacity:.22;
@@ -640,7 +655,11 @@ function displayCard(i) {
   for (let k = 0; k < NEWS_STRIDE; k++)
     fillPanel(panels[k], images[(i + k) % images.length], i + k);
   spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
-  back.classList.add("on");
+  // Relance l'animation d'entrée des tuiles : on retire la classe puis on force un
+  // reflow avant de la remettre, sinon le navigateur ne rejoue pas l'animation CSS.
+  back.classList.remove("enter");
+  void back.offsetWidth;
+  back.classList.add("enter", "on");
   front.classList.remove("on");
   frontIsA = !frontIsA;
 }
