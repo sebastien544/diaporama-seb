@@ -86,10 +86,11 @@
 
   /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
   /* Mosaïque sur grille logique 2 colonnes × 4 rangées (pensée portrait : tuiles larges
-     → titres lisibles). 8 cellules : 6 montrent un article, 2 sont « absorbées » (taille
-     nulle) par une grande tuile voisine. La géométrie de chaque cellule (left/top/width/
-     height en px) est CALCULÉE par le JS (cellLayout) puis animée : les cases grandissent
-     /rétrécissent (jusqu'à zéro), aucune ne se déplace. Voir cellLayout + displayCard. */
+     → titres lisibles). 6 tuiles (une par article, lettres a→f). La géométrie de chaque
+     tuile (left/top/width/height en px) est CALCULÉE par le JS (tileLayout) puis animée :
+     d'un gabarit à l'autre, chaque tuile GLISSE et se redimensionne de son ancien
+     rectangle vers le nouveau → les tuiles se DÉPLACENT vers la nouvelle disposition.
+     Voir tileLayout + displayCard. */
   .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
     background:#000; pointer-events:none; }
   .card.on { opacity:1; pointer-events:auto; }   /* seule la carte visible reçoit les taps */
@@ -602,12 +603,13 @@ const MOSAICS = [
   '"a b" "a c" "d e" "f f"',   // a haute à gauche, f large en bas
   '"a a" "b c" "d e" "f f"',   // a et f larges (haut/bas), 4 cases au milieu
 ];
-// La mosaïque vit sur une grille fixe de 2 colonnes × 4 rangées = 8 cellules. À chaque
-// gabarit, 6 cellules sont « primaires » (montrent un article) et 2 sont « absorbées »
-// (taille nulle) par une grande tuile voisine. On garde donc 8 panneaux en permanence ;
-// une grande tuile = panneau primaire étendu, sa voisine absorbée = panneau à 0.
-const CARD_COLS = 2, CARD_ROWS = 4, CELL_COUNT = CARD_COLS * CARD_ROWS;   // 8
-// Gabarit HTML d'un panneau (généré CELL_COUNT× par carte au démarrage, cf. buildCards).
+// La mosaïque montre 6 tuiles (une par article, lettres a→f) sur une grille 2 colonnes
+// × 4 rangées. On garde donc 6 panneaux en permanence : d'un gabarit à l'autre, chaque
+// panneau (= une tuile) GLISSE et se redimensionne de son ancien rectangle vers le
+// nouveau (cf. tileLayout + displayCard) — les tuiles se déplacent vers la nouvelle
+// disposition au lieu de se redimensionner sur place.
+const NEWS_TILES = 6;
+// Gabarit HTML d'un panneau (généré NEWS_TILES× par carte au démarrage, cf. buildCards).
 const PANEL_HTML =
   '<img class="card-bg" referrerpolicy="no-referrer" alt="">' +
   '<div class="card-scrim"></div>' +
@@ -623,7 +625,7 @@ function buildCards() {
   if (cardsBuilt) return;
   for (const card of [cardA, cardB]) {
     card.innerHTML = "";
-    for (let k = 0; k < CELL_COUNT; k++) {
+    for (let k = 0; k < NEWS_TILES; k++) {
       const p = document.createElement("div");
       p.className = "card-panel";
       p.innerHTML = PANEL_HTML;
@@ -638,53 +640,44 @@ const MORPH_MS = 1100;
 const MORPH_EASE = "cubic-bezier(.22,.61,.36,1)";
 const CARD_GAP = 3;   // gouttière entre tuiles (px), reproduite dans le calcul de géométrie
 
-// Calcule, pour un gabarit donné et une zone WxH, la géométrie des 8 CELLULES de la
-// grille (et non plus des 6 tuiles). Pour chaque cellule (r,c) :
-//   • si elle est le coin haut-gauche de sa tuile → cellule PRIMAIRE : rectangle = toute
-//     la tuile (étendue sur 2 cellules si bandeau/colonne) ; elle montrera un article.
-//   • sinon → cellule ABSORBÉE : taille NULLE, ancrée sur son bord extérieur (droit si la
-//     tuile s'étend horizontalement, bas si verticalement). En passant d'un gabarit à
-//     l'autre, ces cases grandissent depuis zéro / rétrécissent vers zéro, et les bords
-//     partagés glissent → redimensionnement pur, sans qu'aucune case ne se téléporte.
-// Renvoie un tableau de 8 { rect, primary } en ordre de lecture (rangée par rangée).
-function cellLayout(mosaic, W, H, gap) {
+// Calcule, pour un gabarit donné et une zone WxH, la géométrie des 6 TUILES (lettres a→f).
+// Chaque tuile = rectangle couvrant toutes ses cellules (étendue sur 2 cellules si bandeau
+// ou colonne). Les tuiles sont renvoyées en ORDRE DE LECTURE (première apparition de la
+// lettre, rangée par rangée) : ainsi le panneau k désigne toujours la k-ᵉ tuile, et passer
+// d'un gabarit à l'autre fait GLISSER ce panneau de son ancien rectangle vers le nouveau.
+// Renvoie un tableau de 6 rectangles { left, top, width, height }.
+function tileLayout(mosaic, W, H, gap) {
   const rows = mosaic.match(/"([^"]+)"/g).map(s => s.replace(/"/g, "").trim().split(/\s+/));
   const R = rows.length, C = rows[0].length;
   const cw = (W - gap * (C - 1)) / C;   // largeur d'une colonne
   const rh = (H - gap * (R - 1)) / R;   // hauteur d'une rangée
-  const colX = c => c * (cw + gap), rowY = r => r * (rh + gap);
+  const order = [];                      // lettres dans l'ordre de lecture (1re apparition)
   const box = {};                        // lettre → étendue de cellules (rectangulaire)
   for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
     const L = rows[r][c];
-    const o = box[L] || (box[L] = { r0: r, r1: r, c0: c, c1: c });
+    if (!box[L]) { box[L] = { r0: r, r1: r, c0: c, c1: c }; order.push(L); }
+    const o = box[L];
     o.r0 = Math.min(o.r0, r); o.r1 = Math.max(o.r1, r);
     o.c0 = Math.min(o.c0, c); o.c1 = Math.max(o.c1, c);
   }
-  const cells = [];
-  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
-    const b = box[rows[r][c]];
-    if (r === b.r0 && c === b.c0) {                 // PRIMAIRE → toute la tuile
-      cells.push({ primary: true, rect: {
-        left:   colX(b.c0), top: rowY(b.r0),
-        width:  (b.c1 - b.c0 + 1) * cw + (b.c1 - b.c0) * gap,
-        height: (b.r1 - b.r0 + 1) * rh + (b.r1 - b.r0) * gap } });
-    } else if (b.c1 > b.c0) {                       // ABSORBÉE horizontalement → 0 au bord droit
-      cells.push({ primary: false, rect: { left: colX(c) + cw, top: rowY(r), width: 0, height: rh } });
-    } else {                                        // ABSORBÉE verticalement → 0 au bord bas
-      cells.push({ primary: false, rect: { left: colX(c), top: rowY(r) + rh, width: cw, height: 0 } });
-    }
-  }
-  return cells;
+  return order.map(L => {
+    const b = box[L];
+    return {
+      left:   b.c0 * (cw + gap),
+      top:    b.r0 * (rh + gap),
+      width:  (b.c1 - b.c0 + 1) * cw + (b.c1 - b.c0) * gap,
+      height: (b.r1 - b.r0 + 1) * rh + (b.r1 - b.r0) * gap,
+    };
+  });
 }
 
-// Mode actu : une seule carte (cardA) dont les cases se REDIMENSIONNENT d'une mosaïque à
-// l'autre (cf. cellLayout). On anime left/top/width/height de chaque cellule vers sa
-// géométrie cible — les grandes tuiles absorbent leur voisine (qui va à 0), donc rien ne
-// se déplace : seuls les bords partagés glissent et les cases grandissent/rétrécissent.
-// Les 6 articles vont aux cellules primaires (ordre de lecture) ; les cases absorbées
-// rétrécissent vers zéro EN DISPARAISSANT en fondu (sinon on verrait leur texte se
-// comprimer), et celles qui réapparaissent montent en fondu. 1er rendu / reduced-motion
-// → instantané.
+// Mode actu : une seule carte (cardA) avec 6 panneaux persistants (un par tuile). D'une
+// mosaïque à l'autre, chaque panneau GLISSE de son ancien rectangle vers le nouveau : on
+// anime left/top/width/height vers la géométrie cible (cf. tileLayout). Comme le panneau k
+// désigne toujours la k-ᵉ tuile en ordre de lecture, il se DÉPLACE et se redimensionne au
+// lieu de muter sur place — les tuiles se réorganisent selon la nouvelle disposition. Le
+// nouveau contenu est posé tout de suite : il part de l'ancienne position et glisse vers la
+// nouvelle. 1er rendu / reduced-motion → instantané.
 function displayCard(i) {
   const card = cardA;
   const panels = [...card.querySelectorAll(".card-panel")];
@@ -692,25 +685,16 @@ function displayCard(i) {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const animate = !firstRender && !reduce;
 
-  const cells = cellLayout(pickMosaic(), card.clientWidth, card.clientHeight, CARD_GAP);
+  const tiles = tileLayout(pickMosaic(), card.clientWidth, card.clientHeight, CARD_GAP);
 
-  // Les 6 articles → cellules primaires, dans l'ordre de lecture.
-  let a = 0;
-  cells.forEach((cell, k) => {
-    if (cell.primary) { fillPanel(panels[k], images[(i + a) % images.length], i + a); a++; }
-  });
-
-  const geom = ["left", "top", "width", "height"].map(p => `${p} ${MORPH_MS}ms ${MORPH_EASE}`);
+  const geom = ["left", "top", "width", "height"].map(p => `${p} ${MORPH_MS}ms ${MORPH_EASE}`).join(",");
   panels.forEach((p, k) => {
-    const cell = cells[k], r = cell.rect;
-    // Opacité : une case qui s'efface (→ 0) disparaît VITE (moitié de la durée) pour
-    // qu'on ne voie pas son texte se comprimer ; une case qui apparaît monte en douceur
-    // sur toute la durée pendant qu'elle grandit.
-    const opDur = cell.primary ? MORPH_MS : Math.round(MORPH_MS * 0.5);
-    p.style.transition = animate ? [...geom, `opacity ${opDur}ms ease`].join(",") : "none";
+    fillPanel(p, images[(i + k) % images.length], i + k);   // k-ᵉ article → k-ᵉ tuile
+    const r = tiles[k];
+    p.style.transition = animate ? geom : "none";
     p.style.left = r.left + "px"; p.style.top = r.top + "px";
     p.style.width = r.width + "px"; p.style.height = r.height + "px";
-    p.style.opacity = cell.primary ? "1" : "0";
+    p.style.opacity = "1";
   });
 
   spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
