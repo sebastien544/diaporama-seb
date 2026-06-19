@@ -18,7 +18,7 @@
   /* Respecte « réduire les animations » du système : pas de fondus. */
   @media (prefers-reduced-motion: reduce) {
     #show img, .card, .card-bg, #controls, #counter, #exit { transition: none !important; }
-    .card-panel { transition: none !important; }
+    .card-panel, .fc-inner { transition: none !important; }
   }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
@@ -83,6 +83,34 @@
   #exit.hidden { opacity:0; pointer-events:none; }
   .spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:15px; }
+
+  /* ----- Flashcards : éditeur de deck (réglages) ----- */
+  #deck-list { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  .deck-row { display:flex; align-items:center; gap:8px; background:#0c0c0e; border:1px solid #2a2a30;
+    border-radius:10px; padding:8px 10px; }
+  .deck-txt { flex:1; font-size:14px; color:var(--fg); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; }
+  .deck-del { flex:none; width:30px; height:30px; border-radius:8px; border:1px solid #333;
+    background:none; color:var(--muted); cursor:pointer; font-size:13px; }
+  .deck-del:active { background:#1c1c1f; }
+  .deck-empty { color:var(--muted); font-size:13px; padding:6px 2px; }
+
+  /* ----- Flashcards : lecteur plein écran (carte qui se retourne) ----- */
+  #flashcard { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    padding:clamp(20px,5vw,60px); perspective:1600px; }
+  #flashcard.active { display:flex; }
+  .fc-inner { position:relative; width:min(92%,720px); aspect-ratio:3/2;
+    transform-style:preserve-3d; transition:transform .5s cubic-bezier(.4,.15,.2,1); }
+  .fc-inner.flipped { transform:rotateY(180deg); }
+  .fc-face { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    text-align:center; box-sizing:border-box; padding:clamp(20px,4vw,48px); border-radius:24px;
+    backface-visibility:hidden; -webkit-backface-visibility:hidden; overflow:auto;
+    font-size:clamp(22px,4vw,46px); font-weight:700; line-height:1.25; color:#fff;
+    background:#16161c; border:1px solid #2c2c34; }
+  .fc-back { transform:rotateY(180deg); background:#1b2333; border-color:#33405c; }
+  .fc-hint { position:absolute; left:0; right:0; top:calc(40px + env(safe-area-inset-top));
+    text-align:center; color:#fff; opacity:.5; font-size:13px; text-shadow:0 1px 4px #000;
+    pointer-events:none; transition:opacity .3s; }
 
   /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
   /* Mosaïque sur grille logique 2 colonnes × 4 rangées (pensée portrait : tuiles larges
@@ -168,6 +196,7 @@
       <option value="pinterest" selected>Pinterest</option>
       <option value="photos">Mes photos</option>
       <option value="news">Actualités</option>
+      <option value="flashcards">Flashcards</option>
     </select>
 
     <div id="src-group">
@@ -196,6 +225,19 @@
       </details>
 
       <label class="chk"><input type="checkbox" id="hidePromos" checked> Masquer les promos / bons plans</label>
+    </div>
+
+    <div id="flash-group" style="display:none;">
+      <label>Mes cartes</label>
+      <div id="deck-list"></div>
+      <div class="addrow">
+        <input id="card-q" type="text" placeholder="Recto (question)">
+      </div>
+      <div class="addrow">
+        <input id="card-a" type="text" placeholder="Verso (réponse)">
+        <button type="button" id="card-add">Ajouter</button>
+      </div>
+      <div class="hint">Tes cartes sont enregistrées dans <b>ce navigateur</b> (rien n'est envoyé en ligne).</div>
     </div>
 
     <div class="row" id="dur-row">
@@ -266,6 +308,13 @@
   <div class="card" id="cardA"></div>
   <div class="card" id="cardB"></div>
   <div id="counter" class="hidden"></div>
+  <div id="flashcard">
+    <div class="fc-inner" id="fc-inner">
+      <div class="fc-face fc-front" id="fc-front"></div>
+      <div class="fc-face fc-back" id="fc-back"></div>
+    </div>
+    <div class="fc-hint" id="fc-hint">Taper la carte pour la retourner</div>
+  </div>
   <button id="exit" class="hidden" aria-label="Quitter le diaporama">✕</button>
   <div id="controls" class="hidden">
     <button class="ctrl" id="prev" aria-label="Précédent">⟨</button>
@@ -437,6 +486,10 @@ let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
 let newsMode = false;
+let flashMode = false;   // mode Flashcards : deck de cartes recto/verso saisies par l'utilisateur
+let deck = [];           // cartes de la session courante : [{ q, a }]
+let flashIdx = 0;        // index de la carte affichée
+let flashFlipped = false;// carte courante retournée (verso visible) ?
 let hidePromos = true;   // mode actu : écarte les articles promo / bons plans
 let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
 let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
@@ -448,11 +501,14 @@ const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
 const cardA = $("cardA"), cardB = $("cardB");
 const spinner = $("spinner"), counter = $("counter");
+const flashcard = $("flashcard"), fcInner = $("fc-inner"), fcFront = $("fc-front"),
+      fcBack = $("fc-back"), fcHint = $("fc-hint");
 const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
 
 function startShow() {
   setupEl.style.display = "none";
   showEl.style.display = "block";
+  if (flashMode) { startFlash(); return; }
   if (newsMode) buildCards();       // (re)génère les 6 tuiles de chaque carte
   spinner.style.display = "flex";   // visible jusqu'à ce que le 1er contenu soit affiché
   // repart d'un état propre (évite qu'une couche d'une session précédente reste visible)
@@ -804,13 +860,62 @@ function fillPanel(panel, it, i) {
 }
 
 // En mode actu, on affiche 6 articles par carte → on avance/recule de 6.
-function next() { display(idx + (newsMode ? NEWS_STRIDE : 1)); schedule(); }
-function prev() { display(idx - (newsMode ? NEWS_STRIDE : 1)); schedule(); }
+function next() {
+  if (flashMode) { flashNext(); return; }
+  display(idx + (newsMode ? NEWS_STRIDE : 1)); schedule();
+}
+function prev() {
+  if (flashMode) { flashPrev(); return; }
+  display(idx - (newsMode ? NEWS_STRIDE : 1)); schedule();
+}
 
 function schedule() {
   clearTimeout(timer);
   if (playing && interval > 0) timer = setTimeout(next, interval);
 }
+
+// ---------- Mode Flashcards (cartes recto/verso saisies par l'utilisateur) ----------
+function loadDeck() {
+  try { return JSON.parse(localStorage.getItem("flash_deck") || "[]"); } catch (e) { return []; }
+}
+function saveDeck(d) { localStorage.setItem("flash_deck", JSON.stringify(d)); }
+
+// Prépare le lecteur plein écran : carte centrée, barre de navigation visible en
+// permanence (l'avance est manuelle, donc pas de lecture/pause ni de masquage auto).
+function startFlash() {
+  spinner.style.display = "none";
+  for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
+  flashcard.classList.add("active");
+  playBtn.style.display = "none";       // pas d'auto-play en flashcards
+  clearTimeout(ctrlTimer);
+  controls.classList.remove("hidden");
+  counter.classList.remove("hidden");
+  exitBtn.classList.remove("hidden");
+  requestWakeLock();
+  flashIdx = 0;
+  flashShow(0);
+}
+// Affiche la carte i, recto visible (non retournée).
+function flashShow(i) {
+  flashIdx = (i + deck.length) % deck.length;
+  flashFlipped = false;
+  fcInner.classList.remove("flipped");
+  fcFront.textContent = (deck[flashIdx].q || "").trim() || "(recto vide)";
+  fcBack.textContent  = (deck[flashIdx].a || "").trim() || "(verso vide)";
+  fcHint.textContent = "Taper la carte pour la retourner";
+  fcHint.style.opacity = "";
+  counter.textContent = (flashIdx + 1) + " / " + deck.length;
+}
+// Retourne la carte (recto ↔ verso).
+function flashFlip() {
+  flashFlipped = !flashFlipped;
+  fcInner.classList.toggle("flipped", flashFlipped);
+  fcHint.textContent = flashFlipped ? "Taper pour la carte suivante" : "Taper la carte pour la retourner";
+}
+// Tap sur la carte : 1er → retourne ; suivant → carte suivante.
+function flashTap() { if (!flashFlipped) flashFlip(); else flashNext(); }
+function flashNext() { flashShow(flashIdx + 1); }
+function flashPrev() { flashShow(flashIdx - 1); }
 
 function togglePlay() {
   playing = !playing;
@@ -844,7 +949,7 @@ showEl.addEventListener("touchend", e => {
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
     dx < 0 ? next() : prev();
   } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
-    showControls();                          // simple tap → affiche les contrôles
+    if (!e.target.closest("#controls") && e.target !== exitBtn) onTap();   // simple tap
   }
   touchX = touchY = null;
 }, { passive: true });
@@ -852,12 +957,25 @@ showEl.addEventListener("touchend", e => {
 // clic souris (desktop)
 showEl.addEventListener("click", e => {
   if (e.target.closest("#controls") || e.target === exitBtn) return;
-  showControls();
+  onTap();
 });
+
+// Flashcards : un tap retourne la carte / passe à la suivante ; sinon il affiche les contrôles.
+function onTap() {
+  if (flashMode) flashTap();
+  else showControls();
+}
 
 // clavier (desktop)
 document.addEventListener("keydown", e => {
   if (showEl.style.display !== "block") return;
+  if (flashMode) {
+    if (e.key === "ArrowRight") flashNext();
+    else if (e.key === "ArrowLeft") flashPrev();
+    else if (e.key === " " || e.key === "Enter") { e.preventDefault(); flashFlip(); }
+    else if (e.key === "Escape") exitShow();
+    return;
+  }
   if (e.key === "ArrowRight") next();
   else if (e.key === "ArrowLeft") prev();
   else if (e.key === " ") { e.preventDefault(); togglePlay(); }
@@ -899,6 +1017,12 @@ function exitShow() {
   loadToken++;                       // annule un affichage encore en cours
   showEl.style.display = "none";
   setupEl.style.display = "flex";
+  // Remet l'overlay dans son état par défaut (la session flashcards laisse la barre
+  // de contrôles et la carte visibles) pour ne pas polluer la prochaine session.
+  flashcard.classList.remove("active");
+  controls.classList.add("hidden");
+  counter.classList.add("hidden");
+  exitBtn.classList.add("hidden");
 }
 
 // ---------- Source des images : slides.json (synchro tableau complet) sinon flux RSS ----------
@@ -1198,6 +1322,21 @@ function renderSubjects() {
 
 // ---------- Lancement ----------
 $("go").addEventListener("click", async () => {
+  // Flashcards : pas de durée/qualité/fetch — on lit le deck local et on démarre.
+  if ($("source").value === "flashcards") {
+    flashMode = true; newsMode = false;
+    deck = loadDeck();
+    if (!deck.length) { setStatus("Ajoute au moins une carte avant de démarrer.", "err"); return; }
+    if ($("shuffle").checked) for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    localStorage.setItem("pin_source", "flashcards");
+    localStorage.setItem("pin_shuffle", $("shuffle").checked ? "1" : "0");
+    setStatus(deck.length + " cartes.", "ok");
+    startShow();
+    return;
+  }
+  flashMode = false;
   const sel = $("interval").value;
   if (sel === "custom") {
     const secs = parseFloat($("customInterval").value);
@@ -1266,28 +1405,34 @@ $("interval").addEventListener("change", () => {
 // chronologique, cf. #1).
 // Titre (mot accentué) + sous-titre selon le mode choisi.
 const MODE_HEADER = {
-  pinterest: { title: "Pinterest", sub: "Affiche des images en diaporama plein écran, depuis Pinterest." },
-  photos:    { title: "Photos",    sub: "Affiche tes propres photos en diaporama plein écran." },
-  news:      { title: "Actus",     sub: "Affiche un diaporama depuis les flux d'actualité." },
+  pinterest:  { title: "Pinterest",  sub: "Affiche des images en diaporama plein écran, depuis Pinterest." },
+  photos:     { title: "Photos",     sub: "Affiche tes propres photos en diaporama plein écran." },
+  news:       { title: "Actus",      sub: "Affiche un diaporama depuis les flux d'actualité." },
+  flashcards: { title: "Flashcards", sub: "Révise tes propres cartes recto/verso (hors-ligne, dans ce navigateur)." },
 };
 
 function applySource() {
-  const v = $("source").value, isNews = v === "news";
+  const v = $("source").value, isNews = v === "news", isFlash = v === "flashcards";
   const head = MODE_HEADER[v] || MODE_HEADER.pinterest;
   $("title-mode").textContent = head.title;
   $("subtitle").textContent = head.sub;
   $("src-group").style.display    = v === "pinterest" ? "block" : "none";
   $("photos-group").style.display = v === "photos"    ? "block" : "none";
   $("news-group").style.display   = isNews            ? "block" : "none";
+  $("flash-group").style.display  = isFlash           ? "block" : "none";
   $("quality-group").style.display = v === "pinterest" ? "block" : "none";
-  $("fit-group").style.display     = isNews ? "none" : "block";
-  $("shuffle-group").style.display = isNews ? "none" : "flex";
+  $("dur-row").style.display       = isFlash ? "none" : "flex";   // durée/cadrage : sans objet en flashcards
+  $("limit-group").style.display   = isFlash ? "none" : "block";
+  $("fit-group").style.display     = (isNews || isFlash) ? "none" : "block";
+  $("shuffle-group").style.display = isNews ? "none" : "flex";    // mélange aussi pour les flashcards
   $("limit-label").textContent = isNews ? "Actus par session" : "Images par session";
-  // En actus, « Cadrage » est masqué → on remonte le nb d'actus dans la ligne
-  // de durée pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur.
+  $("go").textContent = isFlash ? "▶︎ Démarrer les flashcards" : "▶︎ Lancer le diaporama";
+  // En actus, « Cadrage » est masqué → on remonte le nb d'actus dans la ligne de durée
+  // pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur (hors flashcards).
   const limitGroup = $("limit-group");
   if (isNews) $("dur-row").appendChild(limitGroup);
-  else $("shuffle-group").before(limitGroup);
+  else if (!isFlash) $("shuffle-group").before(limitGroup);
+  if (isFlash) renderDeck();
 }
 $("source").addEventListener("change", applySource);
 $("files").addEventListener("change", () => {
@@ -1298,6 +1443,44 @@ $("clearcache").addEventListener("click", async () => {
   if ("caches" in window) await Promise.all([caches.delete(IMG_CACHE), caches.delete(NEWS_IMG_CACHE)]);
   setStatus("Cache des images vidé.", "ok");
 });
+
+// ----- Éditeur de deck flashcards (cartes mémorisées en local) -----
+function renderDeck() {
+  const d = loadDeck();
+  const list = $("deck-list");
+  list.innerHTML = "";
+  if (!d.length) {
+    const e = document.createElement("div");
+    e.className = "deck-empty";
+    e.textContent = "Aucune carte pour l'instant. Ajoute ton premier recto/verso ci-dessous.";
+    list.appendChild(e);
+    return;
+  }
+  d.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.className = "deck-row";
+    const txt = document.createElement("span");
+    txt.className = "deck-txt";
+    txt.textContent = (c.q || "—") + "  →  " + (c.a || "—");
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "deck-del"; del.textContent = "✕";
+    del.setAttribute("aria-label", "Supprimer la carte");
+    del.addEventListener("click", () => { const arr = loadDeck(); arr.splice(i, 1); saveDeck(arr); renderDeck(); });
+    row.append(txt, del);
+    list.appendChild(row);
+  });
+}
+function addCard() {
+  const q = $("card-q").value.trim(), a = $("card-a").value.trim();
+  if (!q && !a) return;
+  const d = loadDeck(); d.push({ q, a }); saveDeck(d);
+  $("card-q").value = ""; $("card-a").value = "";
+  renderDeck(); $("card-q").focus();
+}
+$("card-add").addEventListener("click", addCard);
+[$("card-q"), $("card-a")].forEach(el => el.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); addCard(); }
+}));
 
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
