@@ -921,8 +921,14 @@ async function getImages() {
   const inputValue = $("src").value;
   const want = normalizeBoard(inputValue);
   // 1) Données synchronisées (pins.json, même origine, TOUTES les épingles du tableau)
+  // Timeout : sans ça, un réseau qui pend figerait « Récupération… » indéfiniment
+  // (le bouton reste désactivé). On abandonne au bout de 9 s → repli RSS.
   try {
-    const r = await fetch("pins.json?cb=" + Date.now(), { cache: "no-store" });
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 9000);
+    let r;
+    try { r = await fetch("pins.json?cb=" + Date.now(), { cache: "no-store", signal: ctrl.signal }); }
+    finally { clearTimeout(to); }
     if (r.ok) {
       const data = await r.json();
       const have = normalizeBoard(data.board || "");

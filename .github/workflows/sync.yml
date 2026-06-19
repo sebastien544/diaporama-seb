@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: sync-pins
@@ -42,4 +43,27 @@ jobs:
             echo "pins.json mis à jour."
           else
             echo "Aucun changement."
+          fi
+
+      # Si une étape précédente a échoué (endpoints Pinterest changés, anti-bot, réseau…),
+      # on ouvre une issue d'alerte — ou on commente l'issue d'alerte déjà ouverte, pour
+      # ne pas en créer une nouvelle à chaque run planifié (toutes les 6 h).
+      - name: Alerte en cas d'échec
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="⚠️ Échec de la synchro Pinterest (sync.mjs)"
+          BODY="La synchronisation a échoué. Les endpoints internes de Pinterest ont peut-être changé (format JSON, protection anti-bot) ou il s'agit d'un incident réseau ponctuel.
+
+          Détails du run : $RUN_URL
+
+          Le site continue d'afficher le dernier \`pins.json\` valide en attendant."
+          EXISTING="$(gh issue list --state open --label sync-failure --json number --jq '.[0].number')"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh label create sync-failure --color B60205 --description "Échec de la synchro Pinterest" 2>/dev/null || true
+            gh issue create --title "$TITLE" --body "$BODY" --label sync-failure
           fi
