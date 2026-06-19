@@ -84,20 +84,6 @@
   .spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:15px; }
 
-  /* ----- Mode Révélation (flashcard : image visible, titre caché jusqu'au tap) ----- */
-  #caption { position:absolute; left:0; right:0; bottom:0; display:none; text-align:center;
-    padding:clamp(16px,3vw,32px) clamp(16px,4vw,40px)
-            calc(clamp(18px,3vw,32px) + env(safe-area-inset-bottom));
-    background:linear-gradient(to top, rgba(0,0,0,.82), rgba(0,0,0,0)); pointer-events:none; }
-  #caption.active { display:block; }   /* visible uniquement en mode Révélation */
-  .reveal-hint { color:#fff; opacity:.72; font-weight:600;
-    font-size:clamp(14px,2vw,22px); text-shadow:0 2px 12px rgba(0,0,0,.6); }
-  .reveal-answer { display:none; color:#fff; font-weight:800; line-height:1.18;
-    font-size:clamp(24px,4.4vw,54px); text-shadow:0 2px 16px rgba(0,0,0,.7);
-    -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
-  #caption.revealed .reveal-hint   { display:none; }
-  #caption.revealed .reveal-answer { display:-webkit-box; }
-
   /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
   /* Mosaïque sur grille logique 2 colonnes × 4 rangées (pensée portrait : tuiles larges
      → titres lisibles). 6 tuiles (une par article, lettres a→f). La géométrie de chaque
@@ -257,8 +243,6 @@
 
     <label class="chk" id="shuffle-group"><input type="checkbox" id="shuffle" checked> Mélanger l'ordre (aléatoire)</label>
 
-    <label class="chk" id="reveal-group"><input type="checkbox" id="revealMode"> Mode Révélation (cacher le titre, taper pour révéler)</label>
-
     <button class="go" id="go">▶︎ Lancer le diaporama</button>
     <div id="status"></div>
 
@@ -282,10 +266,6 @@
   <div class="card" id="cardA"></div>
   <div class="card" id="cardB"></div>
   <div id="counter" class="hidden"></div>
-  <div id="caption" aria-live="polite">
-    <div class="reveal-hint">Taper pour révéler la réponse</div>
-    <div class="reveal-answer"></div>
-  </div>
   <button id="exit" class="hidden" aria-label="Quitter le diaporama">✕</button>
   <div id="controls" class="hidden">
     <button class="ctrl" id="prev" aria-label="Précédent">⟨</button>
@@ -457,9 +437,6 @@ let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
 let newsMode = false;
-let revealMode = false;  // mode flashcard : image visible, titre caché jusqu'au tap
-let revealed = false;    // titre de la diapo courante déjà révélé ?
-let slideTitles = new Map();   // url → titre (transporté depuis slides.json pour la révélation)
 let hidePromos = true;   // mode actu : écarte les articles promo / bons plans
 let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
 let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
@@ -470,7 +447,7 @@ let timeTicker = null;   // rafraîchit l'ancienneté des cartes affichées (mod
 const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
 const cardA = $("cardA"), cardB = $("cardB");
-const spinner = $("spinner"), counter = $("counter"), caption = $("caption");
+const spinner = $("spinner"), counter = $("counter");
 const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
 
 function startShow() {
@@ -484,12 +461,6 @@ function startShow() {
   idx = 0; playing = true; playBtn.textContent = "⏸";
   // En mode « Manuel » (interval 0), lecture/pause n'a pas de sens → on masque le bouton.
   playBtn.style.display = interval > 0 ? "flex" : "none";
-  // Mode Révélation : barre de contrôles sans objet (avance au tap) → cachée ; la légende
-  // est activée et le bouton Quitter reste affiché en permanence pour pouvoir sortir.
-  controls.style.display = revealMode ? "none" : "flex";
-  caption.classList.toggle("active", revealMode);
-  caption.classList.remove("revealed");
-  if (revealMode) { exitBtn.classList.remove("hidden"); counter.classList.remove("hidden"); }
   requestWakeLock();
   display(0, true);
   schedule();
@@ -585,7 +556,6 @@ function preloadNews(it) {
 function display(i, immediate) {
   idx = (i + images.length) % images.length;
   if (newsMode) displayCard(idx); else displayImage(idx);
-  if (revealMode && !newsMode) setCaption(idx);
   counter.textContent = newsMode
     ? (idx + 1) + "-" + (((idx + NEWS_STRIDE - 1) % images.length) + 1) + " / " + images.length
     : (idx + 1) + " / " + images.length;
@@ -839,21 +809,7 @@ function prev() { display(idx - (newsMode ? NEWS_STRIDE : 1)); schedule(); }
 
 function schedule() {
   clearTimeout(timer);
-  if (revealMode) return;     // mode Révélation : avance manuelle (tap), pas de minuterie
   if (playing && interval > 0) timer = setTimeout(next, interval);
-}
-
-// ---------- Mode Révélation (flashcard) ----------
-// Pose le titre de la diapo i, masqué (état « caché ») jusqu'au tap de révélation.
-function setCaption(i) {
-  revealed = false;
-  caption.classList.remove("revealed");
-  caption.querySelector(".reveal-answer").textContent = slideTitles.get(images[i]) || "(sans titre)";
-}
-// 1er tap → révèle le titre ; tap suivant → diapo suivante (setCaption la re-masque).
-function revealOrAdvance() {
-  if (!revealed) { revealed = true; caption.classList.add("revealed"); }
-  else next();
 }
 
 function togglePlay() {
@@ -888,7 +844,7 @@ showEl.addEventListener("touchend", e => {
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
     dx < 0 ? next() : prev();
   } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
-    if (!e.target.closest("#controls") && e.target !== exitBtn) onTap();   // simple tap
+    showControls();                          // simple tap → affiche les contrôles
   }
   touchX = touchY = null;
 }, { passive: true });
@@ -896,24 +852,12 @@ showEl.addEventListener("touchend", e => {
 // clic souris (desktop)
 showEl.addEventListener("click", e => {
   if (e.target.closest("#controls") || e.target === exitBtn) return;
-  onTap();
+  showControls();
 });
-
-// Mode Révélation : un tap révèle puis avance ; sinon il affiche les contrôles.
-function onTap() {
-  if (revealMode && !newsMode) revealOrAdvance();
-  else showControls();
-}
 
 // clavier (desktop)
 document.addEventListener("keydown", e => {
   if (showEl.style.display !== "block") return;
-  if (revealMode && !newsMode) {
-    if (e.key === "ArrowRight" || e.key === " " || e.key === "Enter") { e.preventDefault(); revealOrAdvance(); }
-    else if (e.key === "ArrowLeft") prev();
-    else if (e.key === "Escape") exitShow();
-    return;
-  }
   if (e.key === "ArrowRight") next();
   else if (e.key === "ArrowLeft") prev();
   else if (e.key === " ") { e.preventDefault(); togglePlay(); }
@@ -955,8 +899,6 @@ function exitShow() {
   loadToken++;                       // annule un affichage encore en cours
   showEl.style.display = "none";
   setupEl.style.display = "flex";
-  controls.style.display = "flex";   // restaure la barre (cachée en mode Révélation)
-  caption.classList.remove("active", "revealed");
 }
 
 // ---------- Source des images : slides.json (synchro tableau complet) sinon flux RSS ----------
@@ -966,7 +908,6 @@ function normalizeBoard(input) {
 }
 
 async function getImages() {
-  slideTitles = new Map();   // repart à zéro (pas de titres résiduels d'une session précédente)
   // Source « Mes photos » : images locales choisies par l'utilisateur (non mémorisées)
   if ($("source").value === "photos") {
     const files = [...($("files").files || [])].filter(f => f.type.startsWith("image/"));
@@ -994,15 +935,7 @@ async function getImages() {
       if (!r.ok) continue;
       const data = await r.json();
       const have = normalizeBoard(data.board || "");
-      // On retient aussi le titre de chaque épingle (Map url→titre) pour le mode Révélation.
-      slideTitles = new Map();
-      const urls = [];
-      for (const it of (data.images || [])) {
-        const u = typeof it === "string" ? it : it && it.url;
-        if (!u) continue;
-        urls.push(u);
-        if (it && it.title) slideTitles.set(u, it.title);
-      }
+      const urls = (data.images || []).map(i => typeof i === "string" ? i : i && i.url).filter(Boolean);
       if (urls.length && (!want || want === have)) {
         setStatus(urls.length + " images (tableau complet synchronisé).", "ok");
         return urls;
@@ -1277,8 +1210,6 @@ $("go").addEventListener("click", async () => {
   quality = $("quality").value;
   limit = parseInt($("limit").value, 10) || 0;
   const shuffle = $("shuffle").checked;
-  // Mode Révélation : seul Pinterest fournit des titres à révéler.
-  revealMode = $("revealMode").checked && $("source").value === "pinterest";
   hidePromos = $("hidePromos").checked;   // lu avant fetchNews (qui s'en sert)
 
   newsMode = ($("source").value === "news");
@@ -1312,7 +1243,6 @@ $("go").addEventListener("click", async () => {
       localStorage.setItem("pin_custom", $("customInterval").value);
       localStorage.setItem("pin_fit", $("fit").value);
       localStorage.setItem("pin_shuffle", shuffle ? "1" : "0");
-      localStorage.setItem("pin_reveal", $("revealMode").checked ? "1" : "0");
       localStorage.setItem("news_hide_promos", hidePromos ? "1" : "0");
       startShow();
     }
@@ -1352,7 +1282,6 @@ function applySource() {
   $("quality-group").style.display = v === "pinterest" ? "block" : "none";
   $("fit-group").style.display     = isNews ? "none" : "block";
   $("shuffle-group").style.display = isNews ? "none" : "flex";
-  $("reveal-group").style.display  = v === "pinterest" ? "flex" : "none";   // titres = Pinterest only
   $("limit-label").textContent = isNews ? "Actus par session" : "Images par session";
   // En actus, « Cadrage » est masqué → on remonte le nb d'actus dans la ligne
   // de durée pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur.
@@ -1384,8 +1313,6 @@ if (!$("interval").value || ($("interval").value === "custom" && !$("customInter
 $("fit").value = localStorage.getItem("pin_fit") || "contain";
 const savedShuffle = localStorage.getItem("pin_shuffle");
 if (savedShuffle !== null) $("shuffle").checked = savedShuffle === "1";
-const savedReveal = localStorage.getItem("pin_reveal");
-if (savedReveal !== null) $("revealMode").checked = savedReveal === "1";
 const savedHidePromos = localStorage.getItem("news_hide_promos");
 if (savedHidePromos !== null) $("hidePromos").checked = savedHidePromos === "1";
 $("customInterval").style.display = $("interval").value === "custom" ? "block" : "none";
