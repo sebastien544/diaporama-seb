@@ -901,7 +901,7 @@ function exitShow() {
   setupEl.style.display = "flex";
 }
 
-// ---------- Source des images : pins.json (synchro tableau complet) sinon flux RSS ----------
+// ---------- Source des images : slides.json (synchro tableau complet) sinon flux RSS ----------
 // Même normalisation que buildRssUrl, mais en minuscules (comparaison de tableau).
 function normalizeBoard(input) {
   return stripPinterestInput((input || "").trim()).toLowerCase();
@@ -920,16 +920,19 @@ async function getImages() {
   // Source « Pinterest »
   const inputValue = $("src").value;
   const want = normalizeBoard(inputValue);
-  // 1) Données synchronisées (pins.json, même origine, TOUTES les épingles du tableau)
-  // Timeout : sans ça, un réseau qui pend figerait « Récupération… » indéfiniment
-  // (le bouton reste désactivé). On abandonne au bout de 9 s → repli RSS.
-  try {
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 9000);
-    let r;
-    try { r = await fetch("pins.json?cb=" + Date.now(), { cache: "no-store", signal: ctrl.signal }); }
-    finally { clearTimeout(to); }
-    if (r.ok) {
+  // 1) Données synchronisées, même origine, TOUTES les épingles du tableau.
+  //    slides.json = nom courant ; pins.json = ancien nom, gardé en repli pour les
+  //    clients hors-ligne encore sur une version cachée de l'app.
+  //    Timeout : sans ça, un réseau qui pend figerait « Récupération… » indéfiniment
+  //    (bouton désactivé). On abandonne au bout de 9 s par fichier → repli RSS.
+  for (const file of ["slides.json", "pins.json"]) {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 9000);
+      let r;
+      try { r = await fetch(file + "?cb=" + Date.now(), { cache: "no-store", signal: ctrl.signal }); }
+      finally { clearTimeout(to); }
+      if (!r.ok) continue;
       const data = await r.json();
       const have = normalizeBoard(data.board || "");
       const urls = (data.images || []).map(i => typeof i === "string" ? i : i && i.url).filter(Boolean);
@@ -937,8 +940,8 @@ async function getImages() {
         setStatus(urls.length + " images (tableau complet synchronisé).", "ok");
         return urls;
       }
-    }
-  } catch (e) { /* pas de pins.json → on tente le RSS */ }
+    } catch (e) { /* fichier absent/timeout → on tente le suivant, sinon le RSS */ }
+  }
   // 2) Repli : flux RSS public (n'importe quel tableau, ~25 épingles max)
   const rss = buildRssUrl(inputValue);
   if (!rss) throw new Error("indique un pseudo ou une URL Pinterest");

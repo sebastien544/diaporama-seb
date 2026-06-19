@@ -1,4 +1,6 @@
-// Synchronise TOUTES les épingles d'un tableau Pinterest vers pins.json.
+// Synchronise TOUTES les épingles d'un tableau Pinterest vers slides.json.
+// (Anciennement pins.json — le front lit slides.json en priorité et retombe sur
+//  pins.json pour les clients hors-ligne encore sur une version cachée de l'app.)
 //
 // N'utilise PAS l'API officielle v5 (accès refusé par Pinterest, et de toute façon
 // ses conditions interdisent de stocker les données). On interroge à la place les
@@ -9,7 +11,7 @@
 // problème CORS, donc plus besoin des proxys publics instables du front-end.
 //
 // ⚠️ Endpoints non officiels : si Pinterest change leur format, la synchro casse
-// (le site continue d'afficher le dernier pins.json en attendant). Zone grise vis-à-vis
+// (le site continue d'afficher le dernier slides.json en attendant). Zone grise vis-à-vis
 // des CGU, comme l'était déjà le scraping du flux RSS — mais ici sur tout le tableau.
 //
 // Variables : BOARD_USER (défaut "Pseba37"), BOARD_NAME / slug (défaut "diaporama").
@@ -111,8 +113,8 @@ try {
     count: images.length,
     images,
   };
-  fs.writeFileSync("pins.json", JSON.stringify(data, null, 2) + "\n");
-  console.log(`✅ ${images.length} épingles écrites dans pins.json (board ${board.id}, ${board.pinCount} annoncées).`);
+  fs.writeFileSync("slides.json", JSON.stringify(data, null, 2) + "\n");
+  console.log(`✅ ${images.length} épingles écrites dans slides.json (board ${board.id}, ${board.pinCount} annoncées).`);
 } catch (e) {
   console.error("❌", e.message);
   process.exit(1);
