@@ -84,13 +84,6 @@
   .spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:15px; }
 
-  /* ----- Flashcards : sélecteur de catégories (réglages) ----- */
-  #cat-list { display:flex; flex-direction:column; gap:8px; }
-  .cat-row { display:flex; align-items:center; gap:10px; background:#0c0c0e; border:1px solid #2a2a30;
-    border-radius:10px; padding:11px 12px; margin:0; font-size:15px; cursor:pointer; }
-  .cat-row input { width:22px; height:22px; accent-color:var(--accent); flex:none; }
-  .cat-count { color:var(--muted); font-size:13px; }
-
   /* ----- Flashcards : lecteur plein écran (carte qui se retourne) ----- */
   #flashcard { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
     padding:clamp(20px,5vw,60px); perspective:1600px; }
@@ -225,7 +218,10 @@
 
     <div id="flash-group" style="display:none;">
       <label>Catégories à réviser</label>
-      <div id="cat-list"></div>
+      <details id="cat-picker" class="picker">
+        <summary id="cat-summary">Choisir des catégories…</summary>
+        <div id="cat-body" class="picker-body"></div>
+      </details>
       <div class="hint">Coche une ou plusieurs catégories ; leurs cartes sont regroupées (et mélangées).</div>
     </div>
 
@@ -1469,41 +1465,47 @@ $("clearcache").addEventListener("click", async () => {
   setStatus("Cache des images vidé.", "ok");
 });
 
-// ----- Sélecteur de catégories de flashcards -----
-// Liste les catégories de window.FLASHCARDS (flashcards.js) en cases à cocher, avec
-// le nombre de cartes. Coche par défaut « Culture générale » au premier usage.
+// ----- Sélecteur de catégories de flashcards (menu déroulant multi-choix) -----
+// Liste les catégories de window.FLASHCARDS (flashcards.js) en cases à cocher dans un
+// menu repliable, avec le nombre de cartes. Coche « Culture générale » au 1er usage.
 function renderCategories() {
   const cats = window.FLASHCARDS || {};
-  const list = $("cat-list");
-  list.innerHTML = "";
+  const body = $("cat-body");
+  body.innerHTML = "";
   const names = Object.keys(cats);
   if (!names.length) {
     const e = document.createElement("div");
-    e.className = "hint"; e.style.margin = "0";
+    e.className = "hint"; e.style.margin = "8px 14px";
     e.textContent = "Aucune catégorie disponible (flashcards.js manquant).";
-    list.appendChild(e);
+    body.appendChild(e);
+    $("cat-summary").textContent = "Aucune catégorie";
     return;
   }
   let saved = loadCats();
   if (!localStorage.getItem("flash_cats")) saved = new Set([names[0]]);   // 1er usage : 1re catégorie
   for (const name of names) {
     const row = document.createElement("label");
-    row.className = "cat-row";
+    row.className = "picker-row";
     const cb = document.createElement("input");
     cb.type = "checkbox"; cb.value = name; cb.checked = saved.has(name);
-    cb.addEventListener("change", () => saveCats(selectedCats()));
-    const span = document.createElement("span");
-    span.textContent = name;
+    cb.addEventListener("change", () => { saveCats(selectedCats()); updateCatSummary(); });
+    const lbl = document.createElement("span");
+    lbl.className = "lbl"; lbl.textContent = name;
     const cnt = document.createElement("span");
-    cnt.className = "cat-count"; cnt.textContent = " (" + cats[name].length + ")";
-    span.appendChild(cnt);
-    row.append(cb, span);
-    list.appendChild(row);
+    cnt.className = "picker-src"; cnt.textContent = cats[name].length + " cartes";
+    row.append(cb, lbl, cnt);
+    body.appendChild(row);
   }
+  updateCatSummary();
+}
+// Met à jour le résumé du menu (« 2 catégories sélectionnées »).
+function updateCatSummary() {
+  $("cat-summary").textContent =
+    pickerSummary(selectedCats().length, "catégorie", "catégories", "Choisir des catégories…");
 }
 // Catégories actuellement cochées dans le sélecteur.
 function selectedCats() {
-  return [...$("cat-list").querySelectorAll("input:checked")].map(c => c.value);
+  return [...$("cat-body").querySelectorAll("input:checked")].map(c => c.value);
 }
 
 // restaure la dernière saisie, sinon tableau par défaut
