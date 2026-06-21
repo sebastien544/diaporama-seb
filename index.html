@@ -101,6 +101,18 @@
     text-align:center; color:#fff; opacity:.5; font-size:13px; text-shadow:0 1px 4px #000;
     pointer-events:none; transition:opacity .3s; }
 
+  /* ----- Shorts : lecteur YouTube plein écran (playlist mélangée, enchaînement auto) ----- */
+  #yt { position:absolute; inset:0; display:none; background:#000; }
+  #yt.active { display:block; }
+  #yt iframe, #yt-player { width:100%; height:100%; border:0; }
+  /* Calque transparent au-dessus de l'iframe : capte les taps (l'iframe YouTube,
+     contexte distinct, ne les laisserait pas remonter à nos gestionnaires). */
+  #yt-cover { position:absolute; inset:0; }
+  #yt-hint { position:absolute; left:0; right:0; bottom:calc(90px + env(safe-area-inset-bottom));
+    display:none; text-align:center; color:#fff; font-size:15px; font-weight:600;
+    text-shadow:0 2px 8px rgba(0,0,0,.8); pointer-events:none; transition:opacity .3s; }
+  #yt-hint.show { display:block; }
+
   /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
   /* Mosaïque sur grille logique 2 colonnes × 4 rangées (pensée portrait : tuiles larges
      → titres lisibles). 6 tuiles (une par article, lettres a→f). La géométrie de chaque
@@ -186,7 +198,16 @@
       <option value="photos">Mes photos</option>
       <option value="news">Actualités</option>
       <option value="flashcards">Flashcards</option>
+      <option value="shorts">Shorts (YouTube)</option>
     </select>
+
+    <div id="shorts-group" style="display:none;">
+      <label for="shorts-url">Playlist YouTube</label>
+      <input id="shorts-url" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
+        placeholder="ex. youtube.com/playlist?list=PL…">
+      <div class="hint">Colle l'URL d'une playlist YouTube publique. Lecture plein écran,
+        enchaînement automatique ; démarrage muet → touche l'écran pour le son.</div>
+    </div>
 
     <div id="src-group">
       <label for="src">Profil ou tableau Pinterest</label>
@@ -292,6 +313,8 @@
   <img id="imgB" referrerpolicy="no-referrer" alt="">
   <div class="card" id="cardA"></div>
   <div class="card" id="cardB"></div>
+  <div id="yt"><div id="yt-player"></div><div id="yt-cover"></div></div>
+  <div id="yt-hint">Touchez l'écran pour activer le son</div>
   <div id="counter" class="hidden"></div>
   <div id="flashcard">
     <div class="fc-inner" id="fc-inner">
@@ -476,6 +499,12 @@ let flashMode = false;   // mode Flashcards : deck de cartes recto/verso saisies
 let deck = [];           // cartes de la session courante : [{ q, a }]
 let flashIdx = 0;        // index de la carte affichée
 let flashFlipped = false;// carte courante retournée (verso visible) ?
+let shortsMode = false;  // mode Shorts : lecteur YouTube d'une playlist
+let shortsList = "";     // ID de la playlist YouTube à lire
+let shortsShuffle = true;// lire la playlist dans un ordre aléatoire
+let ytPlayer = null;     // instance YT.Player (API IFrame)
+let ytApiPromise = null; // chargement (une fois) du script de l'API IFrame
+let ytMuted = true;      // le lecteur démarre muet (autoplay mobile) ; tap → son
 let hidePromos = true;   // mode actu : écarte les articles promo / bons plans
 let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
 let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
@@ -489,11 +518,13 @@ const cardA = $("cardA"), cardB = $("cardB");
 const spinner = $("spinner"), counter = $("counter");
 const flashcard = $("flashcard"), fcInner = $("fc-inner"), fcFront = $("fc-front"),
       fcBack = $("fc-back"), fcHint = $("fc-hint");
+const yt = $("yt"), ytHint = $("yt-hint");
 const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
 
 function startShow() {
   setupEl.style.display = "none";
   showEl.style.display = "block";
+  if (shortsMode) { startShorts(); return; }
   if (flashMode) { startFlash(); return; }
   if (newsMode) buildCards();       // (re)génère les 6 tuiles de chaque carte
   spinner.style.display = "flex";   // visible jusqu'à ce que le 1er contenu soit affiché
@@ -847,10 +878,12 @@ function fillPanel(panel, it, i) {
 
 // En mode actu, on affiche 6 articles par carte → on avance/recule de 6.
 function next() {
+  if (shortsMode) { shortsNext(); return; }
   if (flashMode) { flashNext(); return; }
   display(idx + (newsMode ? NEWS_STRIDE : 1)); schedule();
 }
 function prev() {
+  if (shortsMode) { shortsPrev(); return; }
   if (flashMode) { flashPrev(); return; }
   display(idx - (newsMode ? NEWS_STRIDE : 1)); schedule();
 }
@@ -922,7 +955,88 @@ function flashTap() { if (!flashFlipped) flashFlip(); else flashNext(); }
 function flashNext() { flashShow(flashIdx + 1); }
 function flashPrev() { flashShow(flashIdx - 1); }
 
+// ---------- Mode Shorts (lecteur YouTube d'une playlist) ----------
+// Charge (une seule fois) le script de l'API IFrame de YouTube.
+function loadYT() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise(res => {
+    window.onYouTubeIframeAPIReady = res;
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(s);
+  });
+  return ytApiPromise;
+}
+// Extrait l'ID de playlist d'une URL (…?list=ID) ou accepte un ID brut.
+function parsePlaylistId(input) {
+  input = (input || "").trim();
+  const m = input.match(/[?&]list=([A-Za-z0-9_-]+)/);
+  if (m) return m[1];
+  if (/^[A-Za-z0-9_-]{12,}$/.test(input)) return input;   // ID collé directement
+  return "";
+}
+// Démarre le lecteur : playlist mélangée, autoplay muet, enchaînement automatique.
+async function startShorts() {
+  spinner.style.display = "flex";
+  for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
+  yt.classList.add("active");
+  playing = true; playBtn.textContent = "⏸"; playBtn.style.display = "flex";
+  clearTimeout(ctrlTimer);
+  controls.classList.remove("hidden");
+  counter.classList.remove("hidden");
+  exitBtn.classList.remove("hidden");
+  requestWakeLock();
+  await loadYT();
+  if (!shortsMode) return;                       // l'utilisateur a déjà quitté pendant le chargement
+  ytMuted = true;
+  if (ytPlayer) { try { ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
+  yt.innerHTML = '<div id="yt-player"></div><div id="yt-cover"></div>';   // cible API + calque de taps
+  ytPlayer = new YT.Player("yt-player", {
+    width: "100%", height: "100%",
+    host: "https://www.youtube-nocookie.com",       // mode sans cookie de suivi
+    playerVars: { listType: "playlist", list: shortsList, autoplay: 1, mute: 1,
+                  playsinline: 1, rel: 0, controls: 0, modestbranding: 1 },
+    events: {
+      onReady: e => {
+        if (shortsShuffle) e.target.setShuffle(true);
+        e.target.playVideo();
+      },
+      onStateChange: e => {
+        if (e.data === YT.PlayerState.PLAYING) {
+          spinner.style.display = "none";
+          if (ytMuted) ytHint.classList.add("show");
+          shortsCounter();
+        }
+      },
+      onError: () => setStatus("Lecture impossible (playlist privée ou introuvable ?).", "err"),
+    },
+  });
+}
+// Met à jour le compteur « n / total » depuis l'état de la playlist.
+function shortsCounter() {
+  try {
+    const list = ytPlayer.getPlaylist() || [];
+    if (list.length) counter.textContent = (ytPlayer.getPlaylistIndex() + 1) + " / " + list.length;
+  } catch (e) {}
+}
+// Tap : 1er → active le son ; ensuite → affiche les contrôles.
+function shortsTap() {
+  if (ytMuted && ytPlayer) { try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch (e) {} ytMuted = false; ytHint.classList.remove("show"); return; }
+  showControls();
+}
+function shortsNext() { try { ytPlayer && ytPlayer.nextVideo(); } catch (e) {} }
+function shortsPrev() { try { ytPlayer && ytPlayer.previousVideo(); } catch (e) {} }
+function shortsTogglePlay() {
+  if (!ytPlayer) return;
+  playing = !playing;
+  playBtn.textContent = playing ? "⏸" : "▶︎";
+  try { playing ? ytPlayer.playVideo() : ytPlayer.pauseVideo(); } catch (e) {}
+  showControls();
+}
+
 function togglePlay() {
+  if (shortsMode) { shortsTogglePlay(); return; }
   playing = !playing;
   playBtn.textContent = playing ? "⏸" : "▶︎";
   if (flashMode) { flashSchedule(); return; }   // en flashcards, contrôles toujours visibles
@@ -971,9 +1085,10 @@ showEl.addEventListener("click", e => {
   onTap();
 });
 
-// Flashcards : un tap retourne la carte / passe à la suivante ; sinon il affiche les contrôles.
+// Tap : Shorts → son puis contrôles ; Flashcards → retourne/avance ; sinon → contrôles.
 function onTap() {
-  if (flashMode) flashTap();
+  if (shortsMode) shortsTap();
+  else if (flashMode) flashTap();
   else showControls();
 }
 
@@ -1028,9 +1143,12 @@ function exitShow() {
   loadToken++;                       // annule un affichage encore en cours
   showEl.style.display = "none";
   setupEl.style.display = "flex";
-  // Remet l'overlay dans son état par défaut (la session flashcards laisse la barre
-  // de contrôles et la carte visibles) pour ne pas polluer la prochaine session.
+  // Remet l'overlay dans son état par défaut (les sessions flashcards / shorts laissent
+  // la barre de contrôles visible) pour ne pas polluer la prochaine session.
   flashcard.classList.remove("active");
+  if (ytPlayer) { try { ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
+  yt.classList.remove("active");
+  ytHint.classList.remove("show");
   controls.classList.add("hidden");
   counter.classList.add("hidden");
   exitBtn.classList.add("hidden");
@@ -1333,6 +1451,20 @@ function renderSubjects() {
 
 // ---------- Lancement ----------
 $("go").addEventListener("click", async () => {
+  // Shorts : lecteur YouTube d'une playlist — pas de durée/qualité/fetch.
+  if ($("source").value === "shorts") {
+    const id = parsePlaylistId($("shorts-url").value);
+    if (!id) { setStatus("Colle l'URL d'une playlist YouTube (…?list=…).", "err"); return; }
+    shortsMode = true; flashMode = false; newsMode = false;
+    shortsList = id; shortsShuffle = $("shuffle").checked;
+    localStorage.setItem("pin_source", "shorts");
+    localStorage.setItem("pin_shorts_url", $("shorts-url").value);
+    localStorage.setItem("pin_shuffle", $("shuffle").checked ? "1" : "0");
+    setStatus("Chargement de la playlist…", "ok");
+    startShow();
+    return;
+  }
+  shortsMode = false;
   // Durée d'affichage (commune à tous les modes ; en flashcards, 0 = Manuel).
   const sel = $("interval").value;
   if (sel === "custom") {
@@ -1428,10 +1560,11 @@ const MODE_HEADER = {
   photos:     { title: "Photos",     sub: "Affiche tes propres photos en diaporama plein écran." },
   news:       { title: "Actus",      sub: "Affiche un diaporama depuis les flux d'actualité." },
   flashcards: { title: "Flashcards", sub: "Révise des cartes recto/verso par catégorie (culture générale, histoire, géo, sciences)." },
+  shorts:     { title: "Shorts",     sub: "Lit une playlist YouTube en plein écran, mélangée et en boucle." },
 };
 
 function applySource() {
-  const v = $("source").value, isNews = v === "news", isFlash = v === "flashcards";
+  const v = $("source").value, isNews = v === "news", isFlash = v === "flashcards", isShorts = v === "shorts";
   const head = MODE_HEADER[v] || MODE_HEADER.pinterest;
   $("title-mode").textContent = head.title;
   $("subtitle").textContent = head.sub;
@@ -1439,20 +1572,23 @@ function applySource() {
   $("photos-group").style.display = v === "photos"    ? "block" : "none";
   $("news-group").style.display   = isNews            ? "block" : "none";
   $("flash-group").style.display  = isFlash           ? "block" : "none";
+  $("shorts-group").style.display = isShorts          ? "block" : "none";
   $("quality-group").style.display = v === "pinterest" ? "block" : "none";
-  $("dur-row").style.display       = "flex";                      // durée dispo partout (flashcards incluses)
-  $("limit-group").style.display   = isFlash ? "none" : "block";
-  $("fit-group").style.display     = (isNews || isFlash) ? "none" : "block";
-  $("shuffle-group").style.display = isNews ? "none" : "flex";    // mélange aussi pour les flashcards
+  $("dur-row").style.display       = isShorts ? "none" : "flex";   // shorts : durée = celle de la vidéo
+  $("limit-group").style.display   = (isFlash || isShorts) ? "none" : "block";
+  $("fit-group").style.display     = (isNews || isFlash || isShorts) ? "none" : "block";
+  $("shuffle-group").style.display = isNews ? "none" : "flex";     // mélange : images, flashcards, shorts
   $("limit-label").textContent = isNews ? "Actus par session" : "Images par session";
   // En flashcards, la durée s'applique à chaque face (recto puis verso) ; « Manuel » = au tap.
   $("interval-label").textContent = isFlash ? "Durée par face (0 = manuel)" : "Durée par image";
-  $("go").textContent = isFlash ? "▶︎ Démarrer les flashcards" : "▶︎ Lancer le diaporama";
+  $("go").textContent = isShorts ? "▶︎ Lancer les shorts"
+                      : isFlash  ? "▶︎ Démarrer les flashcards"
+                      :            "▶︎ Lancer le diaporama";
   // En actus, « Cadrage » est masqué → on remonte le nb d'actus dans la ligne de durée
-  // pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur (hors flashcards).
+  // pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur (hors flashcards/shorts).
   const limitGroup = $("limit-group");
   if (isNews) $("dur-row").appendChild(limitGroup);
-  else if (!isFlash) $("shuffle-group").before(limitGroup);
+  else if (!isFlash && !isShorts) $("shuffle-group").before(limitGroup);
   if (isFlash) renderCategories();
 }
 $("source").addEventListener("change", applySource);
@@ -1513,6 +1649,7 @@ $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Ps
 $("quality").value = localStorage.getItem("pin_quality") || "1200x";
 $("limit").value = localStorage.getItem("pin_limit") || "25";
 $("source").value = localStorage.getItem("pin_source") || "pinterest";
+$("shorts-url").value = localStorage.getItem("pin_shorts_url") || "";
 $("interval").value = localStorage.getItem("pin_interval") || "30";
 $("customInterval").value = localStorage.getItem("pin_custom") || "";
 // Repli sur 30 s si la durée mémorisée a disparu du menu (anciens 3/5/8/12 s)
