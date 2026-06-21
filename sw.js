@@ -17,8 +17,8 @@ const NEWS_MAX = 150;
 
 // Coquille à précacher (chemins relatifs au scope du SW). "./" et "index.html"
 // servent de repli de navigation hors-ligne.
-const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg", "icon.png", "privacy.html"];
-const SHELL_FILES = new Set(["", "index.html", "manifest.webmanifest", "icon.svg", "icon.png", "privacy.html"]);
+const SHELL = ["./", "index.html", "flashcards.js", "manifest.webmanifest", "icon.svg", "icon.png", "privacy.html"];
+const SHELL_FILES = new Set(["", "index.html", "flashcards.js", "manifest.webmanifest", "icon.svg", "icon.png", "privacy.html"]);
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
