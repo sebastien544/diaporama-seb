@@ -231,7 +231,7 @@
 
     <div class="row" id="dur-row">
       <div>
-        <label for="interval">Durée par image</label>
+        <label for="interval" id="interval-label">Durée par image</label>
         <select id="interval">
           <option value="30" selected>30 s</option>
           <option value="60">1 min</option>
@@ -872,13 +872,17 @@ function loadCats() {
 }
 function saveCats(arr) { localStorage.setItem("flash_cats", JSON.stringify(arr)); }
 
+let flashTimer = null;   // minuteur d'auto-flip / auto-avance (mode durée > 0)
+
 // Prépare le lecteur plein écran : carte centrée, barre de navigation visible en
-// permanence (l'avance est manuelle, donc pas de lecture/pause ni de masquage auto).
+// permanence. Si une durée est choisie, lecture/pause est dispo ; sinon (Manuel),
+// tout se fait au tap et le bouton lecture/pause est masqué.
 function startFlash() {
   spinner.style.display = "none";
   for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
   flashcard.classList.add("active");
-  playBtn.style.display = "none";       // pas d'auto-play en flashcards
+  playing = true; playBtn.textContent = "⏸";
+  playBtn.style.display = interval > 0 ? "flex" : "none";
   clearTimeout(ctrlTimer);
   controls.classList.remove("hidden");
   counter.classList.remove("hidden");
@@ -886,6 +890,17 @@ function startFlash() {
   requestWakeLock();
   flashIdx = 0;
   flashShow(0);
+}
+// (Re)arme le minuteur : recto → retournement auto ; verso → carte suivante.
+// Inactif si Manuel (interval 0) ou en pause. Appelé à chaque changement d'état
+// pour que tap/swipe manuels remettent le compteur à zéro.
+function flashSchedule() {
+  clearTimeout(flashTimer);
+  if (!flashMode || !playing || interval <= 0) return;
+  flashTimer = setTimeout(() => {
+    if (!flashFlipped) flashFlip();   // affiche la réponse (et ré-arme pour l'avance)
+    else flashNext();                 // carte suivante (et ré-arme pour le retournement)
+  }, interval);
 }
 // Affiche la carte i, recto visible (non retournée).
 function flashShow(i) {
@@ -897,14 +912,16 @@ function flashShow(i) {
   fcHint.textContent = "Taper la carte pour la retourner";
   fcHint.style.opacity = "";
   counter.textContent = (flashIdx + 1) + " / " + deck.length;
+  flashSchedule();
 }
 // Retourne la carte (recto ↔ verso).
 function flashFlip() {
   flashFlipped = !flashFlipped;
   fcInner.classList.toggle("flipped", flashFlipped);
   fcHint.textContent = flashFlipped ? "Taper pour la carte suivante" : "Taper la carte pour la retourner";
+  flashSchedule();
 }
-// Tap sur la carte : 1er → retourne ; suivant → carte suivante.
+// Tap sur la carte : 1er → retourne ; suivant → carte suivante (réinitialise le minuteur).
 function flashTap() { if (!flashFlipped) flashFlip(); else flashNext(); }
 function flashNext() { flashShow(flashIdx + 1); }
 function flashPrev() { flashShow(flashIdx - 1); }
@@ -912,6 +929,7 @@ function flashPrev() { flashShow(flashIdx - 1); }
 function togglePlay() {
   playing = !playing;
   playBtn.textContent = playing ? "⏸" : "▶︎";
+  if (flashMode) { flashSchedule(); return; }   // en flashcards, contrôles toujours visibles
   schedule();
   showControls();
 }
@@ -923,6 +941,7 @@ function showControls() {
   counter.classList.remove("hidden");
   exitBtn.classList.remove("hidden");
   clearTimeout(ctrlTimer);
+  if (flashMode) return;   // en flashcards, la barre reste affichée en permanence
   ctrlTimer = setTimeout(() => {
     controls.classList.add("hidden");
     counter.classList.add("hidden");
@@ -1005,7 +1024,7 @@ document.addEventListener("fullscreenchange", syncFsIcon);
 document.addEventListener("webkitfullscreenchange", syncFsIcon);
 
 function exitShow() {
-  clearTimeout(timer); clearTimeout(ctrlTimer);
+  clearTimeout(timer); clearTimeout(ctrlTimer); clearTimeout(flashTimer);
   clearInterval(newsRefreshTimer);
   clearInterval(timeTicker);
   releaseWakeLock();
@@ -1318,8 +1337,17 @@ function renderSubjects() {
 
 // ---------- Lancement ----------
 $("go").addEventListener("click", async () => {
-  // Flashcards : pas de durée/qualité/fetch — on rassemble les cartes des catégories
-  // cochées (window.FLASHCARDS) et on démarre.
+  // Durée d'affichage (commune à tous les modes ; en flashcards, 0 = Manuel).
+  const sel = $("interval").value;
+  if (sel === "custom") {
+    const secs = parseFloat($("customInterval").value);
+    if (!secs || secs <= 0) { setStatus("Indique une durée en secondes (ex. 7).", "err"); return; }
+    interval = secs * 1000;
+  } else {
+    interval = parseInt(sel, 10) * 1000;
+  }
+  // Flashcards : pas de qualité/fetch — on rassemble les cartes des catégories
+  // cochées (window.FLASHCARDS) et on démarre (avec la durée choisie ci-dessus).
   if ($("source").value === "flashcards") {
     flashMode = true; newsMode = false;
     const cats = selectedCats();
@@ -1333,19 +1361,13 @@ $("go").addEventListener("click", async () => {
     saveCats(cats);
     localStorage.setItem("pin_source", "flashcards");
     localStorage.setItem("pin_shuffle", $("shuffle").checked ? "1" : "0");
+    localStorage.setItem("pin_interval", sel);
+    localStorage.setItem("pin_custom", $("customInterval").value);
     setStatus(deck.length + " cartes (" + cats.length + " catégorie(s)).", "ok");
     startShow();
     return;
   }
   flashMode = false;
-  const sel = $("interval").value;
-  if (sel === "custom") {
-    const secs = parseFloat($("customInterval").value);
-    if (!secs || secs <= 0) { setStatus("Indique une durée en secondes (ex. 7).", "err"); return; }
-    interval = secs * 1000;
-  } else {
-    interval = parseInt(sel, 10) * 1000;
-  }
   fitClass = "fit-" + $("fit").value;
   quality = $("quality").value;
   limit = parseInt($("limit").value, 10) || 0;
@@ -1422,11 +1444,13 @@ function applySource() {
   $("news-group").style.display   = isNews            ? "block" : "none";
   $("flash-group").style.display  = isFlash           ? "block" : "none";
   $("quality-group").style.display = v === "pinterest" ? "block" : "none";
-  $("dur-row").style.display       = isFlash ? "none" : "flex";   // durée/cadrage : sans objet en flashcards
+  $("dur-row").style.display       = "flex";                      // durée dispo partout (flashcards incluses)
   $("limit-group").style.display   = isFlash ? "none" : "block";
   $("fit-group").style.display     = (isNews || isFlash) ? "none" : "block";
   $("shuffle-group").style.display = isNews ? "none" : "flex";    // mélange aussi pour les flashcards
   $("limit-label").textContent = isNews ? "Actus par session" : "Images par session";
+  // En flashcards, la durée s'applique à chaque face (recto puis verso) ; « Manuel » = au tap.
+  $("interval-label").textContent = isFlash ? "Durée par face (0 = manuel)" : "Durée par image";
   $("go").textContent = isFlash ? "▶︎ Démarrer les flashcards" : "▶︎ Lancer le diaporama";
   // En actus, « Cadrage » est masqué → on remonte le nb d'actus dans la ligne de durée
   // pour les afficher en 2 colonnes ; sinon le bloc reste plein-largeur (hors flashcards).
