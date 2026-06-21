@@ -505,6 +505,7 @@ let shortsShuffle = true;// lire la playlist dans un ordre aléatoire
 let ytPlayer = null;     // instance YT.Player (API IFrame)
 let ytApiPromise = null; // chargement (une fois) du script de l'API IFrame
 let ytMuted = true;      // le lecteur démarre muet (autoplay mobile) ; tap → son
+let ytErrCount = 0;      // vidéos non lisibles sautées d'affilée (garde-fou anti-boucle)
 let hidePromos = true;   // mode actu : écarte les articles promo / bons plans
 let objectUrls = [];   // blobs des photos locales, à révoquer entre deux sessions
 let loadToken = 0;     // anti-flash : invalide un affichage si un plus récent arrive
@@ -989,7 +990,7 @@ async function startShorts() {
   requestWakeLock();
   await loadYT();
   if (!shortsMode) return;                       // l'utilisateur a déjà quitté pendant le chargement
-  ytMuted = true;
+  ytMuted = true; ytErrCount = 0;
   if (ytPlayer) { try { ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
   yt.innerHTML = '<div id="yt-player"></div><div id="yt-cover"></div>';   // cible API + calque de taps
   ytPlayer = new YT.Player("yt-player", {
@@ -1004,12 +1005,25 @@ async function startShorts() {
       },
       onStateChange: e => {
         if (e.data === YT.PlayerState.PLAYING) {
+          ytErrCount = 0;                 // une vidéo joue → on repart à zéro
           spinner.style.display = "none";
+          setStatus("");
           if (ytMuted) ytHint.classList.add("show");
           shortsCounter();
         }
       },
-      onError: () => setStatus("Lecture impossible (playlist privée ou introuvable ?).", "err"),
+      // 101/150 = intégration interdite (fréquent sur les Shorts), 100 = vidéo
+      // supprimée/privée, 5 = erreur lecteur → on saute à la suivante. 2 = playlist/
+      // paramètre invalide → inutile d'insister.
+      onError: e => {
+        const code = e.data;
+        if (code === 2) { setStatus("Playlist introuvable ou lien invalide.", "err"); return; }
+        if (++ytErrCount > 10) {
+          setStatus("Ces vidéos ne sont pas lisibles hors de YouTube (intégration désactivée).", "err");
+          return;
+        }
+        try { ytPlayer.nextVideo(); } catch (e) {}   // on passe à la vidéo suivante
+      },
     },
   });
 }
