@@ -238,6 +238,10 @@
         <button type="button" id="card-add">Ajouter</button>
       </div>
       <div class="hint">Tes cartes sont enregistrées dans <b>ce navigateur</b> (rien n'est envoyé en ligne).</div>
+      <button type="button" id="card-samples"
+        style="margin-top:10px; width:100%; background:none; border:1px solid #333; color:var(--muted); padding:11px 14px; border-radius:10px; font-size:13px; cursor:pointer;">
+        + Ajouter des cartes de culture générale
+      </button>
     </div>
 
     <div class="row" id="dur-row">
@@ -1445,6 +1449,24 @@ $("clearcache").addEventListener("click", async () => {
 });
 
 // ----- Éditeur de deck flashcards (cartes mémorisées en local) -----
+// Jeu d'exemple proposé via le bouton « Ajouter des cartes de culture générale ».
+const SAMPLE_CARDS = [
+  { q: "Quelle est la capitale de l'Australie ?", a: "Canberra" },
+  { q: "Qui a peint la Joconde ?", a: "Léonard de Vinci" },
+  { q: "En quelle année a débuté la Révolution française ?", a: "1789" },
+  { q: "Quelle est la planète la plus proche du Soleil ?", a: "Mercure" },
+  { q: "Quel est le plus grand océan du monde ?", a: "L'océan Pacifique" },
+  { q: "Quel est le symbole chimique de l'or ?", a: "Au" },
+  { q: "Qui a écrit « Les Misérables » ?", a: "Victor Hugo" },
+  { q: "Quel est le plus haut sommet du monde ?", a: "L'Everest (8 849 m)" },
+  { q: "En quelle année l'Homme a-t-il marché sur la Lune ?", a: "1969" },
+  { q: "Qui a formulé la théorie de la relativité ?", a: "Albert Einstein" },
+  { q: "Quelle est la capitale du Japon ?", a: "Tokyo" },
+  { q: "Combien de côtés a un hexagone ?", a: "Six" },
+  { q: "Quel gaz les plantes absorbent-elles pour la photosynthèse ?", a: "Le dioxyde de carbone (CO₂)" },
+  { q: "Quel fleuve traverse Paris ?", a: "La Seine" },
+];
+
 function renderDeck() {
   const d = loadDeck();
   const list = $("deck-list");
@@ -1481,6 +1503,20 @@ $("card-add").addEventListener("click", addCard);
 [$("card-q"), $("card-a")].forEach(el => el.addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); addCard(); }
 }));
+// Ajoute le jeu d'exemple, en évitant les doublons (par question).
+$("card-samples").addEventListener("click", () => {
+  const d = loadDeck();
+  const have = new Set(d.map(c => (c.q || "").trim().toLowerCase()));
+  let added = 0;
+  for (const c of SAMPLE_CARDS) {
+    const k = c.q.trim().toLowerCase();
+    if (have.has(k)) continue;
+    have.add(k); d.push(c); added++;
+  }
+  saveDeck(d); renderDeck();
+  setStatus(added ? (added + " carte(s) de culture générale ajoutée(s).")
+                  : "Ces cartes sont déjà dans ton deck.", "ok");
+});
 
 // restaure la dernière saisie, sinon tableau par défaut
 $("src").value = localStorage.getItem("pin_src") || "https://fr.pinterest.com/Pseba37/diaporama/";
