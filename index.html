@@ -931,6 +931,7 @@ function showControls() {
 }
 
 let touchX = null, touchY = null;
+let lastTouchTap = 0;   // anti-double : ignore le click synthétique qui suit un touchend
 showEl.addEventListener("touchstart", e => {
   touchX = e.changedTouches[0].clientX; touchY = e.changedTouches[0].clientY;
 }, { passive: true });
@@ -943,11 +944,14 @@ showEl.addEventListener("touchend", e => {
   } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
     if (!e.target.closest("#controls") && e.target !== exitBtn) onTap();   // simple tap
   }
+  lastTouchTap = Date.now();   // un click synthétique va suivre → on le neutralisera
   touchX = touchY = null;
 }, { passive: true });
 
-// clic souris (desktop)
+// clic souris (desktop). Sur tactile, le navigateur émet AUSSI un click après le
+// touchend : sans ce filtre, onTap serait appelé 2× (le flip se retournerait aussitôt).
 showEl.addEventListener("click", e => {
+  if (Date.now() - lastTouchTap < 700) return;   // click issu d'un tap déjà traité
   if (e.target.closest("#controls") || e.target === exitBtn) return;
   onTap();
 });
