@@ -328,6 +328,7 @@
     <button class="ctrl" id="prev" aria-label="Précédent">⟨</button>
     <button class="ctrl big" id="play" aria-label="Lecture / pause">⏸</button>
     <button class="ctrl" id="next" aria-label="Suivant">⟩</button>
+    <button class="ctrl" id="mute" aria-label="Activer / couper le son" style="display:none;">🔇</button>
     <button class="ctrl" id="fs" title="Plein écran" aria-label="Plein écran">⛶</button>
   </div>
 </div>
@@ -520,7 +521,7 @@ const spinner = $("spinner"), counter = $("counter");
 const flashcard = $("flashcard"), fcInner = $("fc-inner"), fcFront = $("fc-front"),
       fcBack = $("fc-back"), fcHint = $("fc-hint");
 const yt = $("yt"), ytHint = $("yt-hint");
-const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit");
+const controls = $("controls"), playBtn = $("play"), exitBtn = $("exit"), muteBtn = $("mute");
 
 function startShow() {
   setupEl.style.display = "none";
@@ -983,6 +984,7 @@ async function startShorts() {
   for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
   yt.classList.add("active");
   playing = true; playBtn.textContent = "⏸"; playBtn.style.display = "flex";
+  muteBtn.style.display = "flex"; muteBtn.textContent = "🔇";   // démarre muet
   clearTimeout(ctrlTimer);
   controls.classList.remove("hidden");
   counter.classList.remove("hidden");
@@ -1036,9 +1038,17 @@ function shortsCounter() {
 }
 // Tap : 1er → active le son ; ensuite → affiche les contrôles.
 function shortsTap() {
-  if (ytMuted && ytPlayer) { try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch (e) {} ytMuted = false; ytHint.classList.remove("show"); return; }
+  if (ytMuted && ytPlayer) { setShortsMuted(false); ytHint.classList.remove("show"); return; }
   showControls();
 }
+// Coupe/active le son et synchronise l'icône du bouton.
+function setShortsMuted(m) {
+  if (!ytPlayer) return;
+  ytMuted = m;
+  try { m ? ytPlayer.mute() : (ytPlayer.unMute(), ytPlayer.setVolume(100)); } catch (e) {}
+  muteBtn.textContent = m ? "🔇" : "🔊";
+}
+function toggleMute() { setShortsMuted(!ytMuted); ytHint.classList.remove("show"); showControls(); }
 function shortsNext() { try { ytPlayer && ytPlayer.nextVideo(); } catch (e) {} }
 function shortsPrev() { try { ytPlayer && ytPlayer.previousVideo(); } catch (e) {} }
 function shortsTogglePlay() {
@@ -1123,6 +1133,7 @@ document.addEventListener("keydown", e => {
 });
 
 playBtn.onclick = togglePlay;
+muteBtn.onclick = toggleMute;
 $("next").onclick = () => { next(); showControls(); };
 $("prev").onclick = () => { prev(); showControls(); };
 exitBtn.onclick = exitShow;
@@ -1163,6 +1174,7 @@ function exitShow() {
   if (ytPlayer) { try { ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
   yt.classList.remove("active");
   ytHint.classList.remove("show");
+  muteBtn.style.display = "none";
   controls.classList.add("hidden");
   counter.classList.add("hidden");
   exitBtn.classList.add("hidden");
