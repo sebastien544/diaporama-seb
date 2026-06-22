@@ -18,7 +18,7 @@
   /* Respecte « réduire les animations » du système : pas de fondus. */
   @media (prefers-reduced-motion: reduce) {
     #show img, .card, .card-bg, #controls, #counter, #exit { transition: none !important; }
-    .card-panel, .fc-inner { transition: none !important; }
+    .card-panel, .fc-inner, #card-flip-inner { transition: none !important; }
   }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
@@ -113,18 +113,26 @@
     text-shadow:0 2px 8px rgba(0,0,0,.8); pointer-events:none; transition:opacity .3s; }
   #yt-hint.show { display:block; }
 
-  /* ----- Cartes d'actu (mosaïque de 6 articles, tailles aléatoires) ----- */
-  /* Mosaïque sur grille logique 2 colonnes × 4 rangées (pensée portrait : tuiles larges
-     → titres lisibles). 6 tuiles (une par article, lettres a→f). La géométrie de chaque
-     tuile (left/top/width/height en px) est CALCULÉE par le JS (tileLayout) puis animée :
-     d'un gabarit à l'autre, chaque tuile GLISSE et se redimensionne de son ancien
-     rectangle vers le nouveau → les tuiles se DÉPLACENT vers la nouvelle disposition.
-     Voir tileLayout + displayCard. */
-  .card { position:absolute; inset:0; opacity:0; transition:opacity .6s ease; overflow:hidden;
-    background:#000; pointer-events:none; }
-  .card.on { opacity:1; pointer-events:auto; }   /* seule la carte visible reçoit les taps */
-  /* Tuiles positionnées en absolu ; left/top/width/height posés (et animés) par le JS. */
-  .card-panel { position:absolute; left:0; top:0; width:0; height:0; box-sizing:border-box;
+  /* ----- Cartes d'actu (4 articles, grille 2×2 ; la carte se retourne) ----- */
+  /* 4 tuiles de MÊME taille sur une grille 2 colonnes × 2 rangées. Pour passer à la
+     fournée suivante, la carte se RETOURNE en 3D (rotateY) : cardA et cardB sont les
+     deux faces (recto/verso) d'un même bloc qui pivote de 180° à chaque navigation.
+     On remplit la face cachée AVANT de retourner → elle est prête au moment où elle
+     apparaît. Voir #card-flip-inner + displayCard. */
+  #card-flip { position:absolute; inset:0; display:none; background:#000;
+    perspective:2200px; }
+  #card-flip.on { display:block; }
+  #card-flip-inner { position:absolute; inset:0; transform-style:preserve-3d;
+    transition:transform .8s cubic-bezier(.4,.15,.2,1); }
+  /* Les deux faces : superposées, dos masqué quand elles pivotent à l'opposé du regard. */
+  .card { position:absolute; inset:0; overflow:hidden; background:#000;
+    backface-visibility:hidden; -webkit-backface-visibility:hidden;
+    display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:3px;
+    pointer-events:none; }
+  .card.on { pointer-events:auto; }   /* seule la face visible reçoit les taps */
+  #cardB { transform:rotateY(180deg); }   /* verso : pré-tourné, révélé par le pivot */
+  /* Tuiles en grille : 4 cases égales (2×2), placées automatiquement. */
+  .card-panel { position:relative; box-sizing:border-box;
     overflow:hidden; background:#1c1c1f; }
   /* Logo de la source, en filigrane centré quand l'article n'a pas d'image. */
   .card-logo { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
@@ -311,8 +319,10 @@
   <div class="spinner" id="spinner">Chargement…</div>
   <img id="imgA" referrerpolicy="no-referrer" alt="">
   <img id="imgB" referrerpolicy="no-referrer" alt="">
-  <div class="card" id="cardA"></div>
-  <div class="card" id="cardB"></div>
+  <div id="card-flip"><div id="card-flip-inner">
+    <div class="card" id="cardA"></div>
+    <div class="card" id="cardB"></div>
+  </div></div>
   <div id="yt"><div id="yt-player"></div><div id="yt-cover"></div></div>
   <div id="yt-hint">Touchez l'écran pour activer le son</div>
   <div id="counter" class="hidden"></div>
@@ -496,6 +506,8 @@ let quality = "1200x";
 let limit = 25;
 let frontIsA = true;
 let newsMode = false;
+let newsAngle = 0;       // rotation cumulée de la carte d'actu (180° par fournée)
+let newsFrontIsA = true; // cardA est-elle la face actuellement visible ?
 let flashMode = false;   // mode Flashcards : deck de cartes recto/verso saisies par l'utilisateur
 let deck = [];           // cartes de la session courante : [{ q, a }]
 let flashIdx = 0;        // index de la carte affichée
@@ -517,6 +529,7 @@ let timeTicker = null;   // rafraîchit l'ancienneté des cartes affichées (mod
 const showEl = $("show"), setupEl = $("setup");
 const imgA = $("imgA"), imgB = $("imgB");
 const cardA = $("cardA"), cardB = $("cardB");
+const cardFlip = $("card-flip"), cardFlipInner = $("card-flip-inner");
 const spinner = $("spinner"), counter = $("counter");
 const flashcard = $("flashcard"), fcInner = $("fc-inner"), fcFront = $("fc-front"),
       fcBack = $("fc-back"), fcHint = $("fc-hint");
@@ -528,10 +541,10 @@ function startShow() {
   showEl.style.display = "block";
   if (shortsMode) { startShorts(); return; }
   if (flashMode) { startFlash(); return; }
-  if (newsMode) buildCards();       // (re)génère les 6 tuiles de chaque carte
+  if (newsMode) buildCards();       // (re)génère les 4 tuiles de chaque face
   spinner.style.display = "flex";   // visible jusqu'à ce que le 1er contenu soit affiché
   // repart d'un état propre (évite qu'une couche d'une session précédente reste visible)
-  for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
+  for (const el of [imgA, imgB, cardA, cardB, cardFlip]) el.classList.remove("on");
   frontIsA = true;
   idx = 0; playing = true; playBtn.textContent = "⏸";
   // En mode « Manuel » (interval 0), lecture/pause n'a pas de sens → on masque le bouton.
@@ -574,7 +587,7 @@ document.addEventListener("visibilitychange", async () => {
 async function refreshNewsPool() {
   let fresh = await fetchNews();
   if (limit > 0 && fresh.length > limit) fresh = fresh.slice(0, limit);
-  // Total multiple de 6 (6 articles/carte) : sinon la dernière mosaïque reprendrait
+  // Total multiple de 4 (4 articles/carte) : sinon la dernière fournée reprendrait
   // les premiers articles (doublons). On ne tronque que si on a au moins une carte pleine.
   if (fresh.length > NEWS_STRIDE) fresh = fresh.slice(0, fresh.length - (fresh.length % NEWS_STRIDE));
   if (!fresh.length) return false;
@@ -628,13 +641,13 @@ function preloadNews(it) {
   preloadImg(real ? candidates(real)[0] : fillerFor(it));
 }
 
-function display(i, immediate) {
+function display(i, immediate, dir) {
   idx = (i + images.length) % images.length;
-  if (newsMode) displayCard(idx); else displayImage(idx);
+  if (newsMode) displayCard(idx, immediate, dir); else displayImage(idx);
   counter.textContent = newsMode
     ? (idx + 1) + "-" + (((idx + NEWS_STRIDE - 1) % images.length) + 1) + " / " + images.length
     : (idx + 1) + " / " + images.length;
-  // Précharge ce qui vient : en actu, les 6 articles de la prochaine mosaïque
+  // Précharge ce qui vient : en actu, les 4 articles de la prochaine fournée
   // (image réelle OU filler décoratif) ; en mode images, simplement la suivante.
   if (newsMode) {
     for (let k = 0; k < NEWS_STRIDE; k++)
@@ -667,23 +680,11 @@ const GRADIENTS = [
   "linear-gradient(135deg,#1f4037,#0c1f1a)", "linear-gradient(135deg,#4d3319,#241608)",
   "linear-gradient(135deg,#2b2b33,#131318)", "linear-gradient(135deg,#1f2b4d,#0c1124)",
 ];
-// 6 articles par carte, en mosaïque. Chaque gabarit place 6 tuiles a→f sur une
-// grille 2 colonnes × 4 rangées (8 cellules) : certaines tuiles occupent 2 cellules
-// (en largeur ou en hauteur) → des tailles variées. Conçu pour l'iPad en portrait.
-const NEWS_STRIDE = 6;
-const MOSAICS = [
-  '"a b" "a c" "d d" "e f"',   // a haute à gauche, d large au milieu
-  '"a b" "c b" "d d" "e f"',   // b haute à droite, d large au milieu
-  '"a a" "b c" "b d" "e f"',   // a large en haut, b haute à gauche
-  '"a b" "a c" "d e" "f f"',   // a haute à gauche, f large en bas
-  '"a a" "b c" "d e" "f f"',   // a et f larges (haut/bas), 4 cases au milieu
-];
-// La mosaïque montre 6 tuiles (une par article, lettres a→f) sur une grille 2 colonnes
-// × 4 rangées. On garde donc 6 panneaux en permanence : d'un gabarit à l'autre, chaque
-// panneau (= une tuile) GLISSE et se redimensionne de son ancien rectangle vers le
-// nouveau (cf. tileLayout + displayCard) — les tuiles se déplacent vers la nouvelle
-// disposition au lieu de se redimensionner sur place.
-const NEWS_TILES = 6;
+// 4 articles par carte, de MÊME taille, sur une grille 2×2. On passe à la fournée
+// suivante en RETOURNANT la carte (cf. displayCard). Conçu pour l'iPad en portrait.
+const NEWS_STRIDE = 4;
+// 4 tuiles par face (cardA / cardB), placées par la grille CSS (2 colonnes × 2 rangées).
+const NEWS_TILES = 4;
 // Gabarit HTML d'un panneau (généré NEWS_TILES× par carte au démarrage, cf. buildCards).
 const PANEL_HTML =
   '<img class="card-bg" referrerpolicy="no-referrer" alt="">' +
@@ -709,71 +710,49 @@ function buildCards() {
   }
   cardsBuilt = true;
 }
-const pickMosaic = () => MOSAICS[Math.floor(Math.random() * MOSAICS.length)];
-
-const MORPH_MS = 1100;
-const MORPH_EASE = "cubic-bezier(.22,.61,.36,1)";
-const CARD_GAP = 3;   // gouttière entre tuiles (px), reproduite dans le calcul de géométrie
-
-// Calcule, pour un gabarit donné et une zone WxH, la géométrie des 6 TUILES (lettres a→f).
-// Chaque tuile = rectangle couvrant toutes ses cellules (étendue sur 2 cellules si bandeau
-// ou colonne). Les tuiles sont renvoyées en ORDRE DE LECTURE (première apparition de la
-// lettre, rangée par rangée) : ainsi le panneau k désigne toujours la k-ᵉ tuile, et passer
-// d'un gabarit à l'autre fait GLISSER ce panneau de son ancien rectangle vers le nouveau.
-// Renvoie un tableau de 6 rectangles { left, top, width, height }.
-function tileLayout(mosaic, W, H, gap) {
-  const rows = mosaic.match(/"([^"]+)"/g).map(s => s.replace(/"/g, "").trim().split(/\s+/));
-  const R = rows.length, C = rows[0].length;
-  const cw = (W - gap * (C - 1)) / C;   // largeur d'une colonne
-  const rh = (H - gap * (R - 1)) / R;   // hauteur d'une rangée
-  const order = [];                      // lettres dans l'ordre de lecture (1re apparition)
-  const box = {};                        // lettre → étendue de cellules (rectangulaire)
-  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
-    const L = rows[r][c];
-    if (!box[L]) { box[L] = { r0: r, r1: r, c0: c, c1: c }; order.push(L); }
-    const o = box[L];
-    o.r0 = Math.min(o.r0, r); o.r1 = Math.max(o.r1, r);
-    o.c0 = Math.min(o.c0, c); o.c1 = Math.max(o.c1, c);
-  }
-  return order.map(L => {
-    const b = box[L];
-    return {
-      left:   b.c0 * (cw + gap),
-      top:    b.r0 * (rh + gap),
-      width:  (b.c1 - b.c0 + 1) * cw + (b.c1 - b.c0) * gap,
-      height: (b.r1 - b.r0 + 1) * rh + (b.r1 - b.r0) * gap,
-    };
-  });
+// Remplit les 4 tuiles d'une face avec la fournée d'articles démarrant à i.
+function fillFace(card, i) {
+  card.querySelectorAll(".card-panel").forEach((p, k) =>
+    fillPanel(p, images[(i + k) % images.length], i + k));
+}
+// Désigne la face visible (taps actifs) ; l'autre est tournée à l'opposé.
+function setFaceVisible(card) {
+  cardA.classList.toggle("on", card === cardA);
+  cardB.classList.toggle("on", card === cardB);
 }
 
-// Mode actu : une seule carte (cardA) avec 6 panneaux persistants (un par tuile). D'une
-// mosaïque à l'autre, chaque panneau GLISSE de son ancien rectangle vers le nouveau : on
-// anime left/top/width/height vers la géométrie cible (cf. tileLayout). Comme le panneau k
-// désigne toujours la k-ᵉ tuile en ordre de lecture, il se DÉPLACE et se redimensionne au
-// lieu de muter sur place — les tuiles se réorganisent selon la nouvelle disposition. Le
-// nouveau contenu est posé tout de suite : il part de l'ancienne position et glisse vers la
-// nouvelle. 1er rendu / reduced-motion → instantané.
-function displayCard(i) {
-  const card = cardA;
-  const panels = [...card.querySelectorAll(".card-panel")];
-  const firstRender = !card.classList.contains("on");
+// Mode actu : 4 articles de même taille en grille 2×2. cardA et cardB sont les deux
+// faces (recto/verso) d'un bloc qui PIVOTE de 180° à chaque fournée. On remplit la
+// face cachée puis on retourne la carte → elle apparaît déjà prête.
+//   immediate : 1er rendu ou rafraîchissement silencieux → pas de retournement
+//               (on (re)remplit la face visible sur place).
+//   dir       : sens du retournement (+1 suivant, -1 précédent).
+function displayCard(i, immediate, dir) {
+  const firstRender = !cardFlip.classList.contains("on");
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const animate = !firstRender && !reduce;
 
-  const tiles = tileLayout(pickMosaic(), card.clientWidth, card.clientHeight, CARD_GAP);
-
-  const geom = ["left", "top", "width", "height"].map(p => `${p} ${MORPH_MS}ms ${MORPH_EASE}`).join(",");
-  panels.forEach((p, k) => {
-    fillPanel(p, images[(i + k) % images.length], i + k);   // k-ᵉ article → k-ᵉ tuile
-    const r = tiles[k];
-    p.style.transition = animate ? geom : "none";
-    p.style.left = r.left + "px"; p.style.top = r.top + "px";
-    p.style.width = r.width + "px"; p.style.height = r.height + "px";
-    p.style.opacity = "1";
-  });
-
-  spinner.style.display = "none";   // la carte (dégradé + texte) s'affiche aussitôt
-  card.classList.add("on");
+  if (firstRender) {
+    newsAngle = 0; newsFrontIsA = true;
+    cardFlipInner.style.transition = "none";
+    cardFlipInner.style.transform = "rotateY(0deg)";
+    fillFace(cardA, i);
+    setFaceVisible(cardA);
+    cardFlip.classList.add("on");
+    spinner.style.display = "none";
+    return;
+  }
+  if (immediate) {                       // rafraîchissement : on garde la face en place
+    fillFace(newsFrontIsA ? cardA : cardB, i);
+    return;
+  }
+  // Navigation : on remplit la face cachée, puis on retourne la carte vers elle.
+  const hidden = newsFrontIsA ? cardB : cardA;
+  fillFace(hidden, i);
+  newsAngle += (dir < 0 ? -180 : 180);
+  cardFlipInner.style.transition = reduce ? "none" : "";
+  cardFlipInner.style.transform = "rotateY(" + newsAngle + "deg)";
+  newsFrontIsA = !newsFrontIsA;
+  setFaceVisible(hidden);
 }
 // Repli quand l'article n'a pas de photo (ex. Les Échos via Google News).
 // Stratégie : le NOM de la source en filigrane texte s'affiche d'abord (local,
@@ -878,16 +857,17 @@ function fillPanel(panel, it, i) {
   else { link.style.display = "none"; link.removeAttribute("href"); }
 }
 
-// En mode actu, on affiche 6 articles par carte → on avance/recule de 6.
+// En mode actu, on affiche 4 articles par carte → on avance/recule de 4
+// (et la carte se retourne, dir = +1 suivant / -1 précédent).
 function next() {
   if (shortsMode) { shortsNext(); return; }
   if (flashMode) { flashNext(); return; }
-  display(idx + (newsMode ? NEWS_STRIDE : 1)); schedule();
+  display(idx + (newsMode ? NEWS_STRIDE : 1), false, 1); schedule();
 }
 function prev() {
   if (shortsMode) { shortsPrev(); return; }
   if (flashMode) { flashPrev(); return; }
-  display(idx - (newsMode ? NEWS_STRIDE : 1)); schedule();
+  display(idx - (newsMode ? NEWS_STRIDE : 1), false, -1); schedule();
 }
 
 function schedule() {
@@ -910,7 +890,7 @@ let flashTimer = null;   // minuteur d'auto-flip / auto-avance (mode durée > 0)
 // tout se fait au tap et le bouton lecture/pause est masqué.
 function startFlash() {
   spinner.style.display = "none";
-  for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
+  for (const el of [imgA, imgB, cardA, cardB, cardFlip]) el.classList.remove("on");
   flashcard.classList.add("active");
   playing = true; playBtn.textContent = "⏸";
   playBtn.style.display = interval > 0 ? "flex" : "none";
@@ -981,7 +961,7 @@ function parsePlaylistId(input) {
 // Démarre le lecteur : playlist mélangée, autoplay muet, enchaînement automatique.
 async function startShorts() {
   spinner.style.display = "flex";
-  for (const el of [imgA, imgB, cardA, cardB]) el.classList.remove("on");
+  for (const el of [imgA, imgB, cardA, cardB, cardFlip]) el.classList.remove("on");
   yt.classList.add("active");
   playing = true; playBtn.textContent = "⏸"; playBtn.style.display = "flex";
   muteBtn.style.display = "flex"; muteBtn.textContent = "🔇";   // démarre muet
@@ -1537,8 +1517,8 @@ $("go").addEventListener("click", async () => {
       // Actus : déjà triées du plus récent au plus ancien. On garde les N plus
       // récentes (pas un échantillon aléatoire sur 7 jours), en ordre chronologique.
       if (limit > 0 && images.length > limit) images = images.slice(0, limit);
-      // 6 articles par carte (on avance de 6) : un total non multiple de 6 ferait
-      // reprendre les premiers articles sur la dernière mosaïque (doublons) → on
+      // 4 articles par carte (on avance de 4) : un total non multiple de 4 ferait
+      // reprendre les premiers articles sur la dernière fournée (doublons) → on
       // retire le surplus, mais seulement si on a au moins une carte pleine.
       if (images.length > NEWS_STRIDE) images = images.slice(0, images.length - (images.length % NEWS_STRIDE));
     } else {
